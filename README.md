@@ -118,8 +118,11 @@ and shadow maps. Node 22.12 can build and test, but Node 24 avoids a linter depe
 
 CI validates pushes and pull requests. The Pages workflow builds and publishes from
 `main`. Push to a GitHub repository, then choose **Settings → Pages → Source → GitHub
-Actions**. Vite's relative base supports repository subpaths. This workspace has no
-GitHub remote, so no public deployment or URL has been created.
+Actions**. Vite's relative base supports repository subpaths.
+
+Repository: [Guardianec/hollow-canticle](https://github.com/Guardianec/hollow-canticle).
+Pages target: [Play Hollow Canticle](https://guardianec.github.io/hollow-canticle/).
+Deployment runs validate the source before publishing the static build.
 
 ## Scope
 
