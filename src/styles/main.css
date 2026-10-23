@@ -12,9 +12,14 @@
 * {
   box-sizing: border-box;
 }
+html {
+  height: 100%;
+  overflow: clip;
+}
 body {
   margin: 0;
-  overflow: hidden;
+  height: 100dvh;
+  overflow: clip;
 }
 button,
 input,
@@ -1312,4 +1317,461 @@ input[type='checkbox'] {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+/* v0.2: the world fills the viewport, with restrained presentation-aware overlays. */
+.dungeon-webgl {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.game-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #ded5bf;
+  font-family: Manrope, sans-serif;
+  text-shadow: 0 2px 6px #000c;
+  z-index: 1;
+}
+.vitality {
+  position: absolute;
+  left: 30px;
+  top: 27px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: 290px;
+}
+.oath-sigil {
+  font: 54px Georgia;
+  color: #e0bb77;
+  width: 61px;
+  height: 61px;
+  border: 1px solid #ae946958;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  outline: 1px solid #ae946930;
+  outline-offset: 4px;
+  background: #0a171a70;
+}
+.vitality > div {
+  width: 207px;
+}
+.hud-label {
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 9px;
+  color: #c5c9bb;
+}
+.hud-label b {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #bbc9c2;
+}
+.resource {
+  position: relative;
+  height: 7px;
+  background: #0a1219b8;
+  border: 1px solid #a3a08370;
+  box-shadow: 0 0 0 2px #10181c99;
+}
+.resource i {
+  display: block;
+  height: 100%;
+  box-shadow: inset 0 1px #ffffff50;
+  transition: width 0.1s linear;
+}
+.resource.hp i {
+  background: linear-gradient(#bc6353, #8e352f);
+}
+.resource.guard {
+  margin-top: 7px;
+  height: 5px;
+  width: 88%;
+}
+.resource.guard i {
+  background: linear-gradient(#e4c482, #aa8747);
+}
+.resource.focus {
+  margin-top: 7px;
+  height: 4px;
+  width: 75%;
+}
+.resource.focus i {
+  background: #7db5b7;
+}
+.vitality small {
+  display: block;
+  margin-top: 9px;
+  font-size: 9px;
+  color: #adbcaf;
+  letter-spacing: 1px;
+}
+.floor-map {
+  position: absolute;
+  right: 34px;
+  top: 60px;
+  width: 160px;
+  transition: opacity 0.5s;
+}
+.floor-map > div {
+  text-align: right;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: #d6c79f;
+}
+.floor-map small {
+  display: block;
+  font-size: 9px;
+  margin-top: 6px;
+  letter-spacing: 1px;
+  color: #a3b9b3;
+}
+.floor-map svg {
+  width: 120px;
+  height: 95px;
+  float: right;
+  margin-top: 12px;
+  overflow: visible;
+  background: #07111a77;
+  border: 1px solid #aa957a38;
+  padding: 13px;
+}
+.floor-map svg path {
+  stroke: #92a19766;
+  stroke-width: 1;
+  fill: none;
+}
+.floor-map svg rect {
+  fill: #536d6a;
+  stroke: #a8b0a06b;
+  stroke-width: 0.6;
+}
+.floor-map svg .current {
+  fill: #ddbe7a;
+  stroke: #ffe9b3;
+}
+.floor-map svg circle {
+  fill: #fff0c5;
+}
+.duel-hud .floor-map {
+  opacity: 0.15;
+}
+.enemy-title {
+  position: absolute;
+  top: 37px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 360px;
+  text-align: center;
+}
+.enemy-title > span {
+  font:
+    25px 'Cormorant Garamond',
+    Georgia,
+    serif;
+  color: #e6dbc1;
+  letter-spacing: 1px;
+}
+.enemy-title .resource {
+  margin-top: 10px;
+  height: 5px;
+}
+.enemy-title small {
+  display: block;
+  margin-top: 8px;
+  font-size: 10px;
+  color: #a7b4a9;
+  letter-spacing: 1px;
+}
+.enemy-posture {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  text-align: center;
+}
+.enemy-posture .resource {
+  width: 100%;
+  height: 7px;
+  transform: skewX(-12deg);
+}
+.enemy-posture > span {
+  display: block;
+  margin-top: 10px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #c4b287;
+}
+.enemy-posture:after {
+  content: '◆';
+  position: absolute;
+  left: 49%;
+  top: -5px;
+  color: #efd395;
+  font-size: 17px;
+  text-shadow: 0 0 12px #e8ba5c99;
+}
+.context-prompt {
+  position: absolute;
+  bottom: 137px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font:
+    20px 'Cormorant Garamond',
+    Georgia,
+    serif;
+  white-space: nowrap;
+  color: #ead7ad;
+  background: #08121b88;
+  padding: 10px 18px;
+  border-top: 1px solid #c3a56755;
+}
+.context-prompt kbd {
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.quiet-toast {
+  position: absolute;
+  left: 35px;
+  bottom: 87px;
+  max-width: 380px;
+  font:
+    19px 'Cormorant Garamond',
+    Georgia,
+    serif;
+  letter-spacing: 0.4px;
+}
+.quiet-toast small {
+  display: block;
+  font:
+    11px/1.6 Manrope,
+    sans-serif;
+  color: #abbab2;
+  letter-spacing: 0;
+  margin-top: 7px;
+}
+.equipped-weapon {
+  position: absolute;
+  left: 36px;
+  bottom: 35px;
+  font:
+    19px 'Cormorant Garamond',
+    Georgia,
+    serif;
+  color: #c3c8b5;
+}
+.equipped-weapon small {
+  display: inline-flex;
+  margin-left: 15px;
+  gap: 10px;
+  color: #d8c69d;
+}
+.training-note {
+  position: absolute;
+  left: 30px;
+  top: 150px;
+  width: 280px;
+  padding: 15px 19px;
+  border-left: 1px solid #bca26499;
+  background: linear-gradient(90deg, #0c1c25c9, #0c1c2555);
+}
+.training-note small {
+  font-size: 8px;
+  color: #c6ba95;
+  letter-spacing: 1.2px;
+}
+.training-note strong {
+  display: block;
+  font:
+    25px 'Cormorant Garamond',
+    Georgia,
+    serif;
+  margin-top: 7px;
+  font-weight: 400;
+}
+.training-note p {
+  font-size: 11px;
+  color: #b7c9c0;
+  line-height: 1.7;
+  margin: 6px 0 0;
+}
+body.in-game #stage {
+  height: 100dvh;
+}
+.in-game .topbar {
+  position: absolute;
+  right: 12px;
+  top: 5px;
+  z-index: 4;
+  background: none;
+  border: 0;
+  width: 130px;
+  height: 42px;
+  padding: 0;
+  pointer-events: none;
+}
+.in-game .topbar .brand,
+.in-game .header-caption {
+  display: none;
+}
+.in-game .utility {
+  gap: 3px;
+  pointer-events: auto;
+}
+.in-game .utility span {
+  display: none;
+}
+.in-game .utility button {
+  color: #a4b6b4;
+}
+.in-game .bottombar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 3;
+  background: linear-gradient(transparent, #08141ae8);
+  border: 0;
+  font-size: 8px;
+  opacity: 0.65;
+}
+.in-game .bottombar:hover {
+  opacity: 1;
+}
+.in-game .control-guide {
+  gap: 16px;
+}
+.in-game .control-guide kbd {
+  font-size: 8px;
+  padding: 2px 4px;
+}
+.in-game .footer-end {
+  display: none;
+}
+.debug-panel pre {
+  font: 10px/1.7 monospace;
+  white-space: pre-wrap;
+  color: #a3dac0;
+}
+@media (max-width: 800px) {
+  .vitality {
+    left: 20px;
+    top: 22px;
+    width: 240px;
+    gap: 10px;
+  }
+  .vitality > div {
+    width: 160px;
+  }
+  .oath-sigil {
+    width: 45px;
+    height: 45px;
+    font-size: 38px;
+  }
+  .floor-map {
+    right: 22px;
+    top: 65px;
+    width: 110px;
+  }
+  .floor-map svg {
+    width: 90px;
+    height: 85px;
+  }
+  .enemy-title {
+    top: 115px;
+    width: 280px;
+  }
+  .enemy-title > span {
+    font-size: 22px;
+  }
+  .enemy-posture {
+    bottom: 72px;
+    width: 280px;
+  }
+  .training-note {
+    top: 205px;
+    width: 245px;
+    left: 20px;
+  }
+  .quiet-toast {
+    bottom: 85px;
+    left: 22px;
+    width: 250px;
+  }
+  .context-prompt {
+    font-size: 17px;
+    bottom: 125px;
+  }
+  .equipped-weapon {
+    left: 22px;
+    font-size: 16px;
+  }
+}
+.generation-graph {
+  width: 100%;
+  max-height: 300px;
+  background: #07172399;
+  margin: 15px 0;
+}
+.generation-graph path {
+  fill: none;
+  stroke: #b9a572;
+  stroke-width: 2;
+}
+.generation-graph rect {
+  fill: #29403c;
+  stroke: #acb895;
+  stroke-width: 1;
+}
+.generation-graph text {
+  font: 14px monospace;
+  text-anchor: middle;
+  fill: #e2d6ae;
+}
+.generation-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 20px;
+  font-size: 10px;
+  color: #9fb7ab;
+}
+.generation-list b {
+  color: #dac69f;
+}
+.debug-panel input:not([type='checkbox']) {
+  width: 125px;
+  background: #102b24;
+  color: #c2e8ca;
+  border: 1px solid #719e8066;
+  padding: 6px;
+  font: 10px monospace;
+}
+.finisher-hud .vitality,
+.finisher-hud .floor-map,
+.finisher-hud .training-note,
+.finisher-hud .equipped-weapon {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.finisher-hud .enemy-title {
+  opacity: 0.2;
+}
+.descent-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: #07111b;
+  opacity: 0;
+  z-index: 3;
 }

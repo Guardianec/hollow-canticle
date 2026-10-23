@@ -1,20 +1,17 @@
 import * as Phaser from 'phaser';
-import { Renderer, VIEW } from './renderer';
+import { Renderer } from './renderer';
 import { World } from './world';
 import type { Action } from './combat';
 
 export class DungeonScene extends Phaser.Scene {
   painter!: Renderer;
   private keys = new Set<string>();
-  private texture!: Phaser.Textures.CanvasTexture;
   private cleanups: (() => void)[] = [];
   constructor(private world: World) {
     super('dungeon');
   }
   create(): void {
-    this.texture = this.textures.createCanvas('the-descent', VIEW.width, VIEW.height)!;
-    this.add.image(0, 0, 'the-descent').setOrigin(0);
-    this.painter = new Renderer(this.texture.getContext(), this.world);
+    this.painter = new Renderer(document.querySelector('#game')!, this.world);
     const down = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       if (target.closest('input,select,textarea,dialog')) return;
@@ -50,32 +47,45 @@ export class DungeonScene extends Phaser.Scene {
       () => window.removeEventListener('blur', blur),
       () => document.removeEventListener('visibilitychange', visibility),
     );
-    this.input.mouse?.disableContextMenu();
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    const pointerDown = (pointer: PointerEvent) => {
       if (this.world.mode !== 'playing') return;
       this.world.audio.unlock();
-      this.world.input(pointer.rightButtonDown() ? 'parry' : 'attack');
-    });
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      this.world.input(pointer.button === 2 ? 'parry' : 'attack');
+    };
+    const pointerMove = (pointer: PointerEvent) => {
+      const rect = this.painter.canvas.getBoundingClientRect();
       if (this.world.mode === 'playing')
-        this.world.mouseAim = this.painter.screenToWorld(pointer.x, pointer.y);
-    });
+        this.world.mouseAim = this.painter.screenToWorld(
+          pointer.clientX - rect.left,
+          pointer.clientY - rect.top,
+        );
+    };
+    const contextMenu = (event: Event) => event.preventDefault();
+    this.painter.canvas.addEventListener('pointerdown', pointerDown);
+    this.painter.canvas.addEventListener('pointermove', pointerMove);
+    this.painter.canvas.addEventListener('contextmenu', contextMenu);
+    this.cleanups.push(() => this.painter.destroy());
     this.events.once('shutdown', () => this.cleanups.forEach((fn) => fn()));
   }
   update(_time: number, delta: number): void {
     const held = (...keys: string[]) => keys.some((key) => this.keys.has(key));
-    this.world.movement = {
-      x: Number(held('d', 'arrowright')) - Number(held('a', 'arrowleft')),
-      y: Number(held('s', 'arrowdown')) - Number(held('w', 'arrowup')),
-    };
+    this.world.movement = this.painter.movement(
+      Number(held('d', 'arrowright')) - Number(held('a', 'arrowleft')),
+      Number(held('s', 'arrowdown')) - Number(held('w', 'arrowup')),
+    );
     // Bounded steps keep timing consistent while avoiding catch-up damage after a suspended tab.
-    let remaining = Math.min(delta / 1000, 0.1) * (this.world.debug ? this.world.timeScale : 1);
+    let remaining =
+      Math.min(delta / 1000, 0.1) *
+      (this.world.debug
+        ? this.world.timeScale
+        : this.painter.director.entryRemaining > 0
+          ? 0.55
+          : 1);
     while (remaining > 0) {
       const step = Math.min(remaining, 1 / 120);
       this.world.update(step);
       remaining -= step;
     }
     this.painter.draw(Math.min(delta / 1000, 0.05));
-    this.texture.refresh();
   }
 }

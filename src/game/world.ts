@@ -22,6 +22,7 @@ import { finisherStyle, InputBuffer, posturePressure, resolveDefense, type Actio
 import { normalizeSeed, Random } from './random';
 import { persist, type Save } from './save';
 import { Audio } from './audio';
+import { canStand, pathBetween } from './geometry';
 
 export type Mode = 'menu' | 'playing' | 'paused' | 'reward' | 'dead' | 'trained';
 export type PlayerState =
@@ -45,6 +46,8 @@ export interface Player {
   dy: number;
 }
 export interface Enemy {
+  path?: { x: number; y: number }[];
+  pathAt?: number;
   id: number;
   def: EnemyDef;
   x: number;
@@ -66,6 +69,7 @@ export interface Enemy {
   blocks: number;
 }
 export interface Particle {
+  ground?: boolean;
   x: number;
   y: number;
   vx: number;
@@ -151,11 +155,13 @@ export class World {
   debug = new URLSearchParams(location.search).has('debug');
   invincible = false;
   timeScale = 1;
+  presentation = { mode: 'exploration', duel: 0, fps: 0, drawCalls: 0, triangles: 0 };
   audio: Audio;
   private rng = new Random('effects');
   private rewardRng = new Random('rewards');
   private settled = false;
   private attackToken = -1;
+  private iceDrift = { x: 0, y: 0 };
 
   constructor(public save: Save) {
     this.audio = new Audio(save.settings);
@@ -304,6 +310,7 @@ export class World {
     this.effects = [];
     this.particles = [];
     this.attackToken = -1;
+    this.iceDrift = { x: 0, y: 0 };
     this.buffer.clear();
     this.clearAt = 0;
     this.roomDamage = 0;
@@ -325,6 +332,7 @@ export class World {
       ? []
       : this.room.enemies.map((id, index) => this.spawnEnemy(id, index));
     this.emit('enter');
+    this.audio.setBiome(this.floor.biome);
     this.audio.ambience(this.combat, this.mode !== 'playing');
     if (previous)
       this.announce(
@@ -344,8 +352,8 @@ export class World {
     return {
       id: index,
       def,
-      x: 735 + index * 100,
-      y: 380 + index * 85,
+      x: index === 0 ? 735 : 650,
+      y: index === 0 ? 380 : 470,
       facing: Math.PI,
       hp,
       maxHp: hp,
@@ -474,6 +482,12 @@ export class World {
       if (this.mouseAim && p.state === 'idle')
         p.facing = Math.atan2(this.mouseAim.y - p.y, this.mouseAim.x - p.x);
     }
+    const onIce = (this.floor.biome === 3 || this.floor.hybrid === 3) && this.inZone(p, 'ice');
+    const slide = 1 - Math.exp(-dt * (onIce ? 3 : 12));
+    this.iceDrift.x += ((onIce ? this.movement.x * 75 : 0) - this.iceDrift.x) * slide;
+    this.iceDrift.y += ((onIce ? this.movement.y * 75 : 0) - this.iceDrift.y) * slide;
+    if (p.state === 'idle' && Math.hypot(this.iceDrift.x, this.iceDrift.y) > 0.1)
+      this.move(p, this.iceDrift.x * dt, this.iceDrift.y * dt);
     if (p.posture > 0 && p.state === 'idle')
       p.posture = Math.max(0, p.posture - BALANCE.postureRecovery * dt);
     if (p.focus >= 68 && p.state === 'idle' && this.target && distance(p, this.target) < 165)
@@ -675,7 +689,22 @@ export class World {
       e.def.speed * (this.room.modifier === 'Resonant' ? 1.12 : 1) * (e.phase === 2 ? 1.15 : 1);
     if (dist > preferred) {
       const orbit = this.attackToken !== -1 && this.attackToken !== e.id;
-      const angle = e.facing + (orbit ? 0.9 : 0);
+      let angle = e.facing + (orbit ? 0.9 : 0);
+      const blocked =
+        !canStand(this.room, e.x + Math.cos(angle) * 32, e.y + Math.sin(angle) * 32) ||
+        this.obstacles.some(
+          (o) =>
+            Math.hypot(e.x + Math.cos(angle) * 32 - o.x, e.y + Math.sin(angle) * 32 - o.y) <
+            o.radius + 18,
+        );
+      if (blocked || e.path?.length) {
+        if (!e.pathAt || this.time - e.pathAt > 0.6) {
+          e.path = pathBetween(this.room, e, p);
+          e.pathAt = this.time;
+        }
+        while (e.path?.length && distance(e, e.path[0]) < 24) e.path.shift();
+        if (e.path?.[0]) angle = Math.atan2(e.path[0].y - e.y, e.path[0].x - e.x);
+      }
       if (!orbit || dist > 135)
         this.move(e, Math.cos(angle) * speed * dt, Math.sin(angle) * speed * dt);
     }
@@ -1084,7 +1113,8 @@ export class World {
   }
 
   private move(body: { x: number; y: number }, dx: number, dy: number): void {
-    body.x = Math.min(1048, Math.max(72, body.x + dx));
+    const nextX = Math.min(1048, Math.max(72, body.x + dx));
+    if (canStand(this.room, nextX, body.y)) body.x = nextX;
     for (const o of this.obstacles) {
       const d = distance(body, o),
         min = o.radius + 16;
@@ -1093,7 +1123,8 @@ export class World {
         body.x = o.x + Math.cos(angle) * min;
       }
     }
-    body.y = Math.min(680, Math.max(90, body.y + dy));
+    const nextY = Math.min(680, Math.max(90, body.y + dy));
+    if (canStand(this.room, body.x, nextY)) body.y = nextY;
     for (const o of this.obstacles) {
       const d = distance(body, o),
         min = o.radius + 16;
@@ -1147,13 +1178,6 @@ export class World {
       this.hurt(10, 'THE FURNACE EXHALES');
     if (active && biomes.includes(2) && this.inZone(this.player, 'fungal'))
       this.hurt(6, 'SPORES IN YOUR LUNGS');
-    if (
-      biomes.includes(3) &&
-      this.inZone(this.player, 'ice') &&
-      this.movement.x &&
-      !this.movement.y
-    )
-      this.move(this.player, this.movement.x * 1.8, 0);
     if (
       this.room.kind === 'hazard' &&
       active &&

@@ -1,64 +1,88 @@
-# Architecture
+# Architecture — v0.2
 
-The application uses TypeScript, Phaser 4, Vite, and native HTML dialogs. No React or backend.
+The simulation is a 2D action game. Three.js provides a render-only 2.5D world; it does
+not add a 3D physics engine or duplicate combat entities. Phaser runs the scene clock
+in headless mode. Native input and HTML UI sit above the WebGL canvas.
 
-- `src/main.ts` owns startup, the Phaser configuration, UI refresh, and opt-in QA exposure.
-- `game/scene.ts` owns input, bounded 120 Hz simulation steps, focus-loss pausing, and frame rendering.
-- `game/world.ts` owns the current run, player/enemy state, rewards, relic dispatch, and transitions.
-- `game/combat.ts` contains pure defense resolution, posture calculation, input buffering, and finisher selection.
-- `game/dungeon.ts` builds room graphs, budgeted encounters, door positions, and authored obstacle arrangements.
-- `game/data.ts` centralizes timings, weapon rules, enemy combinations, biomes, and relic hook definitions.
-- `game/random.ts` centralizes seeded PRNG, weighted choices, history suppression, and seed normalization.
-- `game/save.ts` validates versioned local data and tolerates denied browser storage.
-- `game/renderer.ts` draws cached procedural rooms and animated actors, effects, camera framing, and HUD.
-- `game/audio.ts` synthesizes distinct cues and a combat-sensitive ambient drone.
-- `src/ui.ts` owns main menu, setup, pause, settings, field guide, Chronicle, reward, summary, and QA panels.
+## Runtime
 
-## Simulation and state
+- `main.ts`: startup, headless Phaser, UI refresh, optional local QA reference.
+- `game/scene.ts`: input, camera-relative movement, raycast aiming, bounded 120 Hz
+  simulation steps, focus loss, renderer lifecycle, and brief encounter entry slowdown.
+- `game/world.ts`: authoritative player/enemy states, combat, rewards, progression,
+  and shared navigation collision. Weapon windows and damage values remain in `data.ts`.
+- `combat.ts`: pure defense resolution, pressure formulas, buffering, finisher naming.
+- `dungeon.ts`: seeded macro graph, progression roles, encounters, topology, and ports.
+- `geometry.ts`: authored unions of platforms/arms/alcoves, elevations, semantic tiles,
+  light anchors, decorations, flood-fill validation, and obstacle-aware navigation.
+- `presentation/architecture.ts`: physical floor slabs, foundations, bridges, arches,
+  masonry, props, gates, landmarks, biome surfaces, and lower ruins.
+- `presentation/materials.ts`: shared materials, original image texture, procedural
+  fabric, low-cost beveled blocks, room batches, and player visibility cutout shader.
+- `presentation/actors.ts`: articulated humanoids, enemy silhouettes, weapon meshes,
+  cloth deformation, combat LOD, pose timelines, and per-joint mesh merging.
+- `presentation/camera.ts`: high exploration framing, close perspective duet framing,
+  interpolation, contact/finisher framing, screen/world mapping, movement basis.
+- `presentation/effects.ts`: streamed spark lines, trails, radial impacts, contact light,
+  and attack ground cues, derived from simulation events.
+- `presentation/renderer.ts`: floor/actor lifecycle, nearby lights, animation, layered
+  atmosphere, water, bloom/output, quality switching, GPU-resource disposal, telemetry.
+- `presentation/hud.ts`: restrained resource meters, discovered map, posture, prompts,
+  training cues, and quiet announcements.
+- `audio.ts`, `save.ts`, `random.ts`, `ui.ts`: synthesized cues/biome air, validated local
+  persistence, independent deterministic streams, and menus/QA tools respectively.
 
-Player states are idle, attack, parry, dodge, hurt, stagger, finisher, and dead.
-Enemy states are idle/approach, tell, active, recovery, broken, and dead. Timers use
-simulation seconds. InputBuffer keeps a short pending action; defensive cancels are
-allowed near attack recovery. Pausing clears pending actions. Frame gaps are bounded
-so a tab suspension cannot apply a long burst of damage. One enemy owns the attack
-token during tell/active, while another may reposition. Guard break releases it.
+## Coordinates and simulation
 
-The renderer uses an original 2.5D projection on a CanvasTexture displayed by Phaser's
-Canvas renderer. Room masonry and decoration are cached on entry. Dynamic actors are
-depth sorted with pillars. Camera zoom and midpoint tracking ease between exploration
-and duels. Particles have short lives and a 260-particle cap. Re-entering a room reuses
-its graph state but reconstructs its visual cache. Cleared enemies stay cleared.
+Player and enemy coordinates remain local to the active area. The renderer places
+that area within the floor's global layout using a fixed cell pitch and a 0.025 scale.
+Neighbors are rendered before entry, including their connecting bridges. Crossing a
+port preserves progression state and interpolates the visible traversal across the
+bridge. Floors after a stairway are regenerated and use a short descent fade.
 
-## Generation
+The renderer queries elevation without changing combat distances or defensive
+windows. Camera orientation controls movement basis; mouse rays intersect the ground
+and convert back to local simulation coordinates. Tests exercise this conversion in
+the close camera. World state is shared between exploration and combat representations.
 
-Each floor uses `seed:floor:depth`. A safe threshold connects a combat spine to an
-elite/guardian and exit. Optional upper/lower loops contain rewards, hazards, a
-challenge, and healing. A secret attaches to a reward branch. Some cross links are
-seeded. Eight room arrangements have four orientations (32 composition variants).
-Recent template choices are downweighted, rather than forbidden.
+The duel camera activates for a nearby significant single opponent or a finisher.
+Groups retain overview framing. The same articulated entity gains finer visible
+armor detail during close presentation; there is no second health or timing model.
+Finishers retain the close view after the enemy leaves the living-target list.
 
-Encounters use biome affinities, costs, budget limits, and a speed compatibility
-constraint. The primary biome changes by depth; floors after five gain a second
-biome's materials and environmental rules. Mandatory connectivity never depends on
-a secret or reward. Topology is intentionally constrained in v0.1; this is a grammar,
-not an unrestricted random walk.
+## Generation pipeline
 
-Loot has an independent seeded stream. Art and impact particles have separate streams,
-so decorative draws cannot change encounter or reward choices. Same seed + depth
-reproduces content; it does not reproduce physical combat input.
+Seed → turning main path → optional cycle → branch growth/shortcuts → protected
+exit and secret leaf → biome-weighted architecture grammar → shared navigation
+surface → encounter composition → elevation → semantic decoration → lighting.
 
-## Relics and persistence
+The exit has only its guardian connection. Required navigation never depends on a
+secret. A generation-history penalty suppresses recently used architecture. Each
+archetype has a clear fighting lane, with irregular traversal modules around it.
+Flood fills verify portals and generated floor components. Pathfinding is invoked
+for blocked enemy approaches rather than running for every frame of every actor.
 
-Relics declare an event, effect, and amount. The event dispatcher applies them to
-the run. Break state is set before dispatch, preventing chained shockwave recursion
-from breaking the same enemy twice. The save holds settings, tutorial completion,
-discoveries, counters, embers, and weapon unlocks; never an active fight. Unknown
-save versions start from safe defaults. Storage exceptions leave a playable session.
+Decoration uses its own seed and semantic locations: edge rubble/foliage, architectural
+columns/banners, story features outside passage lanes, torch anchors, and lower ruins.
+The stair area blends the next biome's materials and introduces its features. Deep
+mutations layer environmental rules and art rather than merely applying a tint.
 
-## QA
+## Rendering costs and ownership
 
-`?debug` reveals spawn, weapon, depth, relic, health, guard, modifier, and slow-motion
-tools plus live timing state and collision/range overlays. The game exposes a local
-`window.canticle` reference only under that flag for development. No data is uploaded.
-Pure rule tests and world simulations cover timings and run transitions. A stress
-test checks 10,000 floors, including depth 10,000, for connectivity and content validity.
+Each room has shared instanced batches, allowing native room-level frustum culling.
+A custom 20-triangle beveled block replaces expensive generic rounded cubes. Rigid
+actor pieces merge by material within animated joints; the cape remains deformable.
+One directional light casts a bounded shadow map; six nearest torches illuminate the
+scene without shadow maps. High quality adds bloom, fog sprites, and atmosphere.
+
+World impacts feed a capped stream of lines and short-lived effect meshes. Room
+changes clear actor ownership; floor changes release unique geometry, materials,
+instancing buffers, and sprite materials. Shared material/geometry resources persist.
+No reference image is used by the runtime. The original generated stone material is
+an albedo/bump input, not a prerendered scene.
+
+## Persistence
+
+The v1 save schema remains compatible: settings, discoveries, weapon unlocks, tutorial,
+embers, and counters. No saved gameplay state is rewritten for the visual overhaul.
+Unknown/malformed saves retain safe defaults. Active runs still do not resume on reload.

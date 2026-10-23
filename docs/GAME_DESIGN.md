@@ -11,8 +11,11 @@ and camera behavior, rather than supplying assets.
   suppress recovery. Passive waiting gives an opponent room to breathe.
 - Choices with rhythm: a mandatory combat spine, optional reward loops, healing, and
   secrets separate fights. Every third floor tests the player against the Unrung Saint.
-- Quiet presentation: cool masonry, warm light, original silhouettes, and a compact
-  HUD. Combat moves the camera toward the space between the combatants.
+- Layered exploration: irregular raised platforms, physical bridges, lower ruins,
+  monumental architecture, a following 3/4 camera, and localized light.
+- Distinct duel presentation: a nearby significant opponent draws the camera down
+  beside the fighters. Articulated combat detail, recoil, trails, impacts, and a
+  held finisher frame amplify the existing simulation without replacing its rules.
 
 ## Combat vocabulary
 

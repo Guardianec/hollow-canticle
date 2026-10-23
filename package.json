@@ -1,6 +1,6 @@
 {
   "name": "hollow-canticle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "A procedural dungeon crawler about the space between two strikes.",
@@ -15,10 +15,12 @@
   "dependencies": {
     "@fontsource/cormorant-garamond": "5.3.0",
     "@fontsource/manrope": "5.3.0",
-    "phaser": "4.2.1"
+    "phaser": "4.2.1",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@types/three": "0.186.0",
     "eslint": "9.39.5",
     "prettier": "3.9.10",
     "typescript": "6.0.3",

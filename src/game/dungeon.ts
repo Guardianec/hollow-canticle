@@ -1,6 +1,6 @@
 import { BIOMES, ENEMIES } from './data';
 import { Random, recentWeight } from './random';
-
+import { geometryFor } from './geometry';
 export type RoomKind =
   | 'start'
   | 'combat'
@@ -29,6 +29,9 @@ export interface Room {
   visited: boolean;
   cleared: boolean;
   claimed: boolean;
+  artSeed: string;
+  landmark: string;
+  transition: boolean;
 }
 export interface Floor {
   depth: number;
@@ -43,53 +46,80 @@ export interface Obstacle {
   radius: number;
   type: 'pillar' | 'rubble' | 'tomb';
 }
-
-const templates = [
-  'cloister',
-  'nave',
-  'gallery',
-  'crossing',
-  'ossuary',
-  'sanctum',
-  'cistern',
-  'bastion',
+export const ROOM_PITCH = { x: 1200, y: 840 };
+export const ARCHETYPES = [
+  'broken-cloister',
+  'chasm-crossing',
+  'hanging-prison',
+  'sunken-court',
+  'root-cathedral',
+  'split-shrine',
+  'furnace-gallery',
+  'bell-bastion',
+  'processional-stair',
+  'forgotten-library',
 ];
-const roomNames: Record<RoomKind, string[]> = {
-  start: ['The Threshold', 'Pilgrim’s Rest'],
-  combat: [
-    'Hall of the Unremembered',
-    'The Broken Procession',
-    'Watch of Ash',
-    'The Silent Crossing',
-  ],
-  elite: ['The Last Vigil', 'Chamber of Judgement'],
-  treasure: ['A Forgotten Offering', 'The Reliquary'],
-  shrine: ['Shrine of the Unsaid', 'A Candle for No One'],
-  hazard: ['The Sinking Walk', 'Passage of Thorns'],
-  healing: ['The Quiet Well', 'Sanctuary of Breath'],
-  secret: ['Behind the Prayer', 'The Hidden Choir'],
-  exit: ['The Descent'],
-  boss: ['The Unrung Belfry'],
-};
-
+const NAMES = [
+  'Cloister of Ash',
+  'The Thousand-Fathom Walk',
+  'The Hanging Penitents',
+  'Court of the Drowned',
+  'The Rootbound Chapel',
+  'Shrine Above the Silence',
+  'The Cinder Works',
+  'Watch of the Unrung',
+  'The Procession of Stone',
+  'The Unwritten Archive',
+];
+const DIRS = [
+  { x: 1, y: 0 },
+  { x: 0, y: 1 },
+  { x: -1, y: 0 },
+  { x: 0, y: -1 },
+];
 export function makeFloor(seed: string, depth: number): Floor {
-  const rng = new Random(`${seed}:floor:${depth}`);
-  const biome = (depth - 1) % BIOMES.length;
-  const hybrid = depth > 5 ? (biome + rng.int(1, 4)) % 5 : null;
-  const rooms: Room[] = [];
-  const history: string[] = [];
-  const add = (x: number, y: number, kind: RoomKind): number => {
-    const template = rng.weighted(templates, (t) => recentWeight(t, history.slice(-3)));
+  const rng = new Random(seed + ':v2:floor:' + depth),
+    biome = (depth - 1) % BIOMES.length,
+    rooms: Room[] = [],
+    history: string[] = [];
+  const occupied = (x: number, y: number) => rooms.some((r) => r.x === x && r.y === y);
+  const add = (x: number, y: number, kind: RoomKind) => {
+    const affinity =
+      biome === 1
+        ? ['sunken-court', 'split-shrine']
+        : biome === 2
+          ? ['root-cathedral', 'hanging-prison']
+          : biome === 3
+            ? ['processional-stair', 'chasm-crossing']
+            : biome === 4
+              ? ['furnace-gallery', 'bell-bastion']
+              : ['broken-cloister', 'bell-bastion'];
+    const template =
+      kind === 'start'
+        ? rng.pick(['chasm-crossing', 'broken-cloister', 'split-shrine'])
+        : rng.weighted(
+            ARCHETYPES,
+            (t) => recentWeight(t, history.slice(-3)) * (affinity.includes(t) ? 3 : 1),
+          );
     history.push(template);
     const budget =
-      kind === 'boss' ? 10 : kind === 'elite' ? 8 : Math.min(9, 3 + Math.floor(depth / 2));
-    const enemies = encounter(rng, kind, budget, biome, depth);
-    const room: Room = {
+        kind === 'boss' ? 10 : kind === 'elite' ? 8 : Math.min(9, 3 + Math.floor(depth / 2)),
+      enemies = encounter(rng, kind, budget, biome, depth);
+    rooms.push({
       id: rooms.length,
       x,
       y,
       kind,
-      name: rng.pick(roomNames[kind]),
+      name:
+        kind === 'start'
+          ? 'Pilgrim’s Overlook'
+          : kind === 'exit'
+            ? 'The Stairs Beneath'
+            : kind === 'boss'
+              ? 'The Unrung Belfry'
+              : kind === 'healing'
+                ? 'The Quiet Cistern'
+                : NAMES[ARCHETYPES.indexOf(template)],
       template,
       variant: rng.int(0, 3),
       links: [],
@@ -97,60 +127,121 @@ export function makeFloor(seed: string, depth: number): Floor {
       budget,
       modifier:
         enemies.length && depth > 1
-          ? rng.pick([
-              'Quiet',
-              'Quiet',
-              'Darkness',
-              'Resonant',
-              'Blood pact',
-              'Unstable',
-              'Silence',
-            ] as const)
+          ? rng.weighted(
+              ['Quiet', 'Darkness', 'Resonant', 'Blood pact', 'Unstable', 'Silence'] as const,
+              (m) => (m === 'Quiet' ? 4 : 1),
+            )
           : 'Quiet',
       elite: rng.pick(['Patient', 'Relentless', 'Armored'] as const),
       visited: false,
       cleared: !enemies.length,
       claimed: false,
-    };
-    rooms.push(room);
-    return room.id;
+      artSeed: seed + ':' + depth + ':' + rooms.length,
+      landmark:
+        kind === 'boss'
+          ? 'bell'
+          : template === 'forgotten-library'
+            ? 'library'
+            : template === 'hanging-prison'
+              ? 'cage'
+              : template === 'root-cathedral'
+                ? 'root'
+                : biome === 4
+                  ? 'furnace'
+                  : rng.pick(['statue', 'bell', 'tree', 'altar']),
+      transition: kind === 'exit',
+    });
+    return rooms.length - 1;
   };
   const link = (a: number, b: number) => {
-    rooms[a].links.push(b);
-    rooms[b].links.push(a);
+    if (!rooms[a].links.includes(b)) {
+      rooms[a].links.push(b);
+      rooms[b].links.push(a);
+    }
   };
-  // A readable spine with optional loops. Rewards never gate the mandatory route.
-  const start = add(0, 1, 'start');
-  const first = add(1, 1, 'combat');
-  const middle = add(2, 1, 'combat');
-  const guardian = add(3, 1, depth % 3 === 0 ? 'boss' : 'elite');
-  const exit = add(4, 1, 'exit');
-  link(start, first);
-  link(first, middle);
-  link(middle, guardian);
-  link(guardian, exit);
-  const upper = add(1, 0, rng.pick(['shrine', 'healing'] as const));
-  const trap = add(2, 0, 'hazard');
-  const upperReward = add(3, 0, 'treasure');
-  link(first, upper);
-  link(upper, trap);
-  link(trap, upperReward);
-  link(upperReward, guardian);
-  const lower = add(1, 2, 'treasure');
-  const challenge = add(2, 2, rng.pick(['combat', 'elite'] as const));
-  const rest = add(3, 2, 'healing');
-  link(first, lower);
-  link(lower, challenge);
-  link(challenge, rest);
-  link(rest, guardian);
-  if (rng.next() > 0.35) link(middle, trap);
-  if (rng.next() > 0.35) link(middle, challenge);
-  const secret = add(4, 0, 'secret');
-  link(upperReward, secret);
-  rooms[start].visited = true;
-  return { seed, depth, biome, hybrid, rooms };
+  add(0, 0, 'start');
+  add(1, 0, 'combat');
+  link(0, 1);
+  let previous = 1;
+  for (const kind of ['combat', depth % 3 === 0 ? 'boss' : 'elite', 'exit'] as RoomKind[]) {
+    const base = rooms[previous],
+      d = rng.pick(DIRS.filter((d) => !occupied(base.x + d.x, base.y + d.y) && base.x + d.x >= 1));
+    const id = add(base.x + d.x, base.y + d.y, kind);
+    link(previous, id);
+    previous = id;
+  }
+  const a = rooms[1],
+    b = rooms[2],
+    dx = b.x - a.x,
+    dy = b.y - a.y;
+  for (const side of rng.shuffle([1, -1])) {
+    const ax = a.x - dy * side,
+      ay = a.y + dx * side,
+      bx = b.x - dy * side,
+      by = b.y + dx * side;
+    if (!occupied(ax, ay) && !occupied(bx, by) && ax >= 0 && bx >= 0) {
+      const c = add(ax, ay, 'healing'),
+        d = add(bx, by, 'treasure');
+      link(1, c);
+      link(c, d);
+      link(d, 2);
+      break;
+    }
+  }
+  if (rooms.length === 5)
+    for (const anchor of [...rooms].filter((r) => r.id > 0 && r.id < 4)) {
+      let done = false;
+      for (const d of DIRS) {
+        const e = { x: -d.y, y: d.x },
+          p = [
+            { x: anchor.x + d.x, y: anchor.y + d.y },
+            { x: anchor.x + d.x + e.x, y: anchor.y + d.y + e.y },
+            { x: anchor.x + e.x, y: anchor.y + e.y },
+          ];
+        if (p.every((p) => !occupied(p.x, p.y))) {
+          const ids = p.map((v, i) =>
+            add(v.x, v.y, (['healing', 'treasure', 'hazard'] as const)[i]),
+          );
+          link(anchor.id, ids[0]);
+          link(ids[0], ids[1]);
+          link(ids[1], ids[2]);
+          link(ids[2], anchor.id);
+          done = true;
+          break;
+        }
+      }
+      if (done) break;
+    }
+  const desired = rng.int(13, 18),
+    kinds: RoomKind[] = ['treasure', 'healing', 'shrine', 'hazard', 'combat', 'elite'];
+  for (let tries = 0; rooms.length < desired && tries < 400; tries++) {
+    const base = rng.pick(rooms.filter((r) => r.id !== 0 && r.id !== 4)),
+      d = rng.pick(DIRS),
+      x = base.x + d.x,
+      y = base.y + d.y;
+    if (occupied(x, y) || x < -1 || x > 6 || Math.abs(y) > 4) continue;
+    const id = add(x, y, kinds[(rooms.length + depth) % kinds.length]);
+    link(base.id, id);
+    for (const r of rooms)
+      if (
+        r.id !== id &&
+        r.id !== 0 &&
+        r.id !== 4 &&
+        Math.abs(r.x - x) + Math.abs(r.y - y) === 1 &&
+        rng.next() < 0.42
+      )
+        link(id, r.id);
+  }
+  for (const r of rng.shuffle(rooms.filter((r) => r.id > 4))) {
+    const d = DIRS.find((d) => !occupied(r.x + d.x, r.y + d.y));
+    if (d) {
+      link(r.id, add(r.x + d.x, r.y + d.y, 'secret'));
+      break;
+    }
+  }
+  rooms[0].visited = true;
+  return { seed, depth, biome, hybrid: depth > 5 ? (biome + rng.int(1, 4)) % 5 : null, rooms };
 }
-
 export function encounter(
   rng: Random,
   kind: RoomKind,
@@ -165,87 +256,32 @@ export function encounter(
         .id,
     ];
   if (kind !== 'combat') return [];
-  if (depth === 1 && budget === 3) return [rng.pick(['warden', 'spear'])];
+  if (depth === 1) return [rng.pick(['warden', 'spear'])];
   const pool = ENEMIES.filter(
-    (e) => e.id !== 'boss' && e.cost <= budget && e.affinity.includes(biome),
-  );
-  const first = rng.pick(pool);
-  const result = [first.id];
-  // One heavy/fast specialist and at most one support. Only one attack token is issued.
-  if (depth > 1) {
-    const support = pool.filter(
+      (e) => e.id !== 'boss' && e.cost <= budget && e.affinity.includes(biome),
+    ),
+    first = rng.pick(pool),
+    result = [first.id],
+    support = pool.filter(
       (e) => e.cost <= budget - first.cost && (first.speed < 110 || e.speed < 110),
     );
-    if (support.length && rng.next() > 0.3) result.push(rng.pick(support).id);
-  }
+  if (support.length && rng.next() > 0.35) result.push(rng.pick(support).id);
   return result;
 }
-
-export function obstaclesFor(room: Room, biome: number): Obstacle[] {
-  const layouts: Record<string, Obstacle[]> = {
-    cloister: [
-      { x: 300, y: 240, radius: 28, type: 'pillar' },
-      { x: 820, y: 240, radius: 28, type: 'pillar' },
-      { x: 300, y: 540, radius: 28, type: 'pillar' },
-      { x: 820, y: 540, radius: 28, type: 'pillar' },
-    ],
-    nave: [
-      { x: 340, y: 240, radius: 24, type: 'pillar' },
-      { x: 780, y: 240, radius: 24, type: 'pillar' },
-      { x: 340, y: 540, radius: 24, type: 'pillar' },
-      { x: 780, y: 540, radius: 24, type: 'pillar' },
-    ],
-    gallery: [
-      { x: 280, y: 230, radius: 34, type: 'tomb' },
-      { x: 840, y: 530, radius: 34, type: 'tomb' },
-    ],
-    crossing: [
-      { x: 350, y: 230, radius: 24, type: 'rubble' },
-      { x: 770, y: 530, radius: 24, type: 'rubble' },
-    ],
-    ossuary: [
-      { x: 270, y: 220, radius: 35, type: 'tomb' },
-      { x: 850, y: 220, radius: 35, type: 'tomb' },
-      { x: 270, y: 550, radius: 30, type: 'tomb' },
-      { x: 850, y: 550, radius: 30, type: 'tomb' },
-    ],
-    sanctum: [
-      { x: 300, y: 380, radius: 29, type: 'pillar' },
-      { x: 820, y: 380, radius: 29, type: 'pillar' },
-    ],
-    cistern: [
-      { x: 300, y: 250, radius: 32, type: 'rubble' },
-      { x: 820, y: 510, radius: 32, type: 'rubble' },
-    ],
-    bastion: [
-      { x: 320, y: 230, radius: 28, type: 'pillar' },
-      { x: 800, y: 230, radius: 28, type: 'pillar' },
-      { x: 320, y: 530, radius: 28, type: 'rubble' },
-      { x: 800, y: 530, radius: 28, type: 'rubble' },
-    ],
-  };
-  if (room.kind === 'boss') return layouts.cloister;
-  return layouts[room.template].map((o) => ({
-    ...o,
-    x: room.variant % 2 ? 1120 - o.x : o.x,
-    y: room.variant > 1 ? 760 - o.y : o.y,
-    type: biome === 4 && o.type === 'tomb' ? 'rubble' : o.type,
-  }));
+export function obstaclesFor(room: Room, _biome: number): Obstacle[] {
+  return geometryFor(room).obstacles;
 }
-
 export function reachable(floor: Floor, from = 0): Set<number> {
-  const seen = new Set<number>([from]);
-  const queue = [from];
+  const seen = new Set([from]),
+    queue = [from];
   for (let i = 0; i < queue.length; i++)
-    for (const id of floor.rooms[queue[i]].links) {
+    for (const id of floor.rooms[queue[i]].links)
       if (!seen.has(id)) {
         seen.add(id);
         queue.push(id);
       }
-    }
   return seen;
 }
-
 export function doorPosition(a: Room, b: Room): { x: number; y: number } {
   return { x: b.x > a.x ? 1040 : b.x < a.x ? 80 : 560, y: b.y > a.y ? 674 : b.y < a.y ? 86 : 380 };
 }

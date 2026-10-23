@@ -1,26 +1,22 @@
-# Hollow Canticle
+# Hollow Canticle — v0.2.0
 
-**A vow in the dark. A blade against the silence.**
+A procedural action dungeon crawler about reading a blade, breaking a guard, and keeping an oath.
 
-An original desktop browser dungeon crawler built around readable weapon rhythms,
-precise deflections, posture breaks, and short cinematic duels. Version **0.1.0**.
-No backend, accounts, external assets service, or telemetry.
+**v0.2 replaces the flat room board with a navigable, layered WebGL dungeon and a low-angle cinematic duel view.** The existing precision-combat simulation remains authoritative.
 
-![Hollow Canticle main menu](docs/screenshots/threshold.jpg)
+![v0.2 exploration](docs/screenshots/v02/exploration-after.jpg)
 
-## Play locally
+## Play
 
-Use **Node 24 LTS** (recommended; Vite requires at least 22.12 on the Node 22 line).
+Use Node 24 LTS, then:
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. Choose **Learn the rhythm** for safe training,
-or **Begin the descent** to choose a starting weapon and seed. New weapons unlock
-in the Chronicle using embers retained at the end of a run. Seeded runs reproduce
-floor layouts and encounters, while your combat choices remain live.
+Choose **Learn the rhythm** for safe training, or **Begin the descent** for a seeded run.
+Keyboard and mouse are required. Phone layouts provide a keyboard requirement notice.
 
 ```sh
 npm run lint
@@ -29,125 +25,108 @@ npm run build
 npm run preview
 ```
 
-Production files are written to `dist/`. Fonts are bundled locally. Node 22.12 can
-build and test the project, but the linter's visitor-key dependency recommends
-22.13 or newer; Node 24 avoids that engine warning.
+Production files are in `dist/`. Everything runs as a static site, including fonts,
+original stone texture, local saves, and synthesized audio. There is no backend,
+account, analytics service, or runtime third-party asset request.
 
-## The descent
+## The visual overhaul
 
-- **Defend, then answer.** Tap deflect as a strike lands. A perfect deflection has
-  a smaller window and stronger guard pressure, sparks, hit stop, and sound.
-  Strike during the opening for a counter. Enemy guard recovers if you withdraw.
-- **Read the whole weapon.** Sweeps, grabs, and heavy smashes require an evade.
-  A greatblade can perfectly turn a smash. Feints punish early defenses.
-- **Deliver the final toll.** When guard breaks, close the distance and press E.
-  Different weapons and opponents select different finisher effects.
-- **Find your cadence.** Clean play generates Focus. At high Focus, staying close
-  creates counter opportunities. At 100, Q releases a posture shockwave.
-- **Choose your route.** Floors contain a mandatory spine and optional loops with
-  shrines, treasure, hazards, healing, and a discoverable secret. Every third
-  floor holds a two-phase guardian. The stairway continues the run indefinitely.
+- An angled exploration camera follows the player through raised platforms,
+  bridges, stairs, ruined cloisters, courtyards, libraries, and chasm crossings.
+- Foundations, lower bridges, distant towers, broken arches, statues, hanging cages,
+  banners, chains, foliage, and fog establish several visible depth layers.
+- Moonlight, six nearby torch lights, contact shadows, localized impact light, and
+  restrained bloom contrast warm light with cool unlit stone.
+- Significant single opponents trigger a low, over-the-shoulder camera. Articulated
+  characters reveal combat detail; their simulation coordinates remain unchanged.
+- Guards recoil, weapons sweep through distinct trails, perfect parries create a
+  radial metal burst, and finishers hold a closer camera before returning to exploration.
+- Groups and minor opponents keep a broader overview. Foreground architecture
+  uses a dithered visibility cutout when it would hide the player.
 
-![A duel in the practice hall](docs/screenshots/duel.jpg)
+![v0.2 cinematic duel](docs/screenshots/v02/combat-after.jpg)
 
-## Controls
+See the [before/after and reference comparison](docs/VISUAL_REVIEW.md).
 
-| Input           | Action                                               |
-| --------------- | ---------------------------------------------------- |
-| WASD / arrows   | Move                                                 |
-| Mouse           | Aim / soft target                                    |
-| J / left mouse  | Strike; counter during an opening                    |
-| K / right mouse | Deflect                                              |
-| Space           | Evade / dodge                                        |
-| E               | Interact, enter a passage, or execute a broken enemy |
-| Q               | Resonance at 100 Focus                               |
-| Esc             | Pause / resume                                       |
-| 1 / 2 / 3       | Choose a relic                                       |
+## Dungeon generation
 
-Keyboard and mouse are required. A small-screen notice explains this on phones.
-Settings include audio levels, parry assistance, reduced motion, impact flashes,
-camera shake, and atmospheric detail. The top bar offers fullscreen and mute.
-Settings, discoveries, statistics, and weapon unlocks persist on this device.
-An active run does **not** resume after a reload.
+Floors contain **14–19 areas**, including a turning main route, a protected guardian
+and exit, at least one loop, recovery and reward branches, optional fights, and a
+secret leaf. Topology itself varies by seed. Ten architectural grammars assemble
+irregular platforms, connecting arms, alcoves, narrow bridges, and elevated sections.
+The same surface definitions drive rendering, collision, and navigation.
 
-## Implemented content
+A seeded semantic decoration pass populates edges, features, architecture, and light
+anchors. Biome affinities, encounter budgets, compatible pairs, and recent-template
+suppression control content. Enemies use navigation paths when a straight approach
+would cross a gap. Room boundaries become real arches and closing gates.
 
-| System            | v0.1.0 content                                                                                             |
-| ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| Enemies           | Cinder Warden, Grave Aegis, Veilblade, Hollow Lancer, Moth Reaver, Drowned Cantor, Bellbreaker, Sporebound |
-| Guardian          | The Unrung Saint, two phases with faster altered rhythms                                                   |
-| Weapons           | Oathkeeper, Moth & Thorn, Pilgrim's Reach, Last Toll                                                       |
-| Relics            | 18 event-driven relics across Faded, Rare, and Sacred tiers                                                |
-| Biomes            | Forgotten Ruins, Drowned Shrine, Fungal Choir, Winter Cloister, Ember Foundry                              |
-| Mutations         | After depth five, a second biome contributes materials and hazards                                         |
-| Elite traits      | Patient, Relentless, Armored                                                                               |
-| Chamber modifiers | Darkness, Resonant, Blood pact, Unstable, Silence                                                          |
-| Rooms             | 12 per floor, 8 authored obstacle arrangements × 4 orientations                                            |
+Five biome families remain: **Forgotten Ruins, Drowned Shrine, Fungal Choir, Winter
+Cloister, and Ember Foundry**. Water and waterfalls, giant fungi and roots, snow and
+icicles, or lava, furnaces and mechanisms distinguish them. Stair areas introduce
+materials from the next biome; deeper floors combine a second biome's features.
 
-Relics include Echoing Steel's every-third-perfect shockwave, Ghost Step's enlarged
-parry after a dodge, Mirror Fang's rear reposition, Ember Edge's burning posture,
-Hungry Blade's finisher-fed attacks, and Lightning Thread's chained finisher damage.
-The Chronicle reveals descriptions as relics are discovered.
+## Combat and controls
 
-## Generation and architecture
+Vitality is life. Guard is posture damage accumulated toward a break. Deflect normal
+strikes, evade sweeps/grabs/smashes, and answer a deflection with an immediate counter.
+A greatblade can perfectly turn a smash. Maintain pressure to prevent guard recovery.
+When guard breaks, approach and press E before the enemy regains its footing.
 
-The generator assembles a connected pacing grammar rather than scattering enemies
-in random rectangles. Biome affinities, encounter budgets, compatibility rules,
-and recent-template downweighting influence content. Ordinary rooms have at most
-two opponents, with one active attack token. Enemy health stays bounded at deep
-floors; difficulty comes from patterns, combinations, modifiers, and mutations.
+| Input           | Action                                                  |
+| --------------- | ------------------------------------------------------- |
+| WASD / arrows   | Move relative to the camera                             |
+| Mouse           | Aim through ground raycasting and soft target selection |
+| J / left mouse  | Strike / counter                                        |
+| K / right mouse | Deflect                                                 |
+| Space           | Evade                                                   |
+| E               | Interact, cross a passage, or execute a broken opponent |
+| Q               | Resonance at 100 Focus                                  |
+| Esc             | Pause                                                   |
+| 1 / 2 / 3       | Choose a relic                                          |
 
-TypeScript simulation is separate from rendering and input. Phaser owns scene
-lifecycle and display scaling; Canvas 2D draws cached masonry, depth-sorted
-silhouettes, light pools, particles, and the HUD. HTML dialogs handle menus.
-WebAudio synthesizes all sounds. Separate random streams isolate generation,
-loot, and visual effects.
+The existing eight enemy archetypes, two-phase Unrung Saint, four weapon identities,
+and eighteen relics are retained. Embers unlock starting weapons in the Chronicle;
+relic discoveries and settings persist. Active runs do not survive reloads.
 
-See [architecture](docs/ARCHITECTURE.md), [design](docs/GAME_DESIGN.md),
-[QA record](docs/QA.md), and [next release priorities](ROADMAP.md).
+## Architecture and validation
 
-## QA & development tools
+TypeScript and Phaser own scene lifecycle and fixed-step game simulation. Three.js
+owns the render-only 2.5D world, articulated rigs, lights, particles, and camera.
+HTML menus and HUD remain independent of the 3D scene. The game uses no 3D physics.
 
-`npm test` runs pure combat/save tests, world simulations, and a 10,000-floor stress
-test checking reachability, door clearance, budget validity, biome affinity, rewards,
-and fair group combinations. The stress test takes roughly 18 seconds on the
-development machine. CI runs lint, tests, and production build.
+`npm test` runs combat/save regression tests, 10,000 seeded floor checks, physical
+geometry and decoration validation, navigation tests, and camera-coordinate tests.
+See [architecture](docs/ARCHITECTURE.md), [QA](docs/QA.md), and [design](docs/GAME_DESIGN.md).
 
-Append `?debug` to the URL for collision and timing overlays, a complete minimap,
-enemy spawning, weapon swaps, relic injection, depth jumps, modifier selection,
-invincibility, healing, guard breaks, and slow-motion controls. These controls are
-absent from the normal interface. No external analytics are collected.
+Append `?debug` for enemy/weapon/relic tools, area and depth selection, live timing,
+frame-rate/triangle telemetry, generation graph, seed regeneration, and slow motion.
 
-## GitHub Pages
+## Performance and accessibility
 
-The repository includes automatic CI and Pages deployment workflows.
+Static architecture is instanced per room for frustum culling. Beveled blocks use a
+small mesh; rigid armor parts merge per animated joint. There are six nearby torch
+lights and one shadow-casting moonlight. Particles are capped, and old floor resources
+are released on descent. Renderer dependencies are separate production chunks.
 
-1. Push this repository to GitHub with the release on the `main` branch.
-2. In **Settings → Pages → Build and deployment → Source**, choose **GitHub Actions**.
-3. The **Deploy to GitHub Pages** workflow validates the game, builds it, and publishes
-   the artifact. Its environment summary provides the live URL.
+Settings include audio, parry assistance, reduced motion, impact flashes, camera
+shake, and atmospheric quality. Turning atmospheric effects off also disables bloom
+and shadow maps. Node 22.12 can build and test, but Node 24 avoids a linter dependency's
+22.13 engine recommendation. Performance still depends on device/GPU and viewport.
 
-Vite uses `base: './'`, so bundled assets resolve under repository subpaths and on
-custom domains. No GitHub remote is configured in the supplied workspace; no public
-site or GitHub release has been created. Deployment workflow execution therefore
-remains unverified until a repository is connected.
+## Deployment
 
-## Scope and next steps
+CI validates pushes and pull requests. The Pages workflow builds and publishes from
+`main`. Push to a GitHub repository, then choose **Settings → Pages → Source → GitHub
+Actions**. Vite's relative base supports repository subpaths. This workspace has no
+GitHub remote, so no public deployment or URL has been created.
 
-This is an intentionally compact indie release with procedural vector-style art,
-a constrained branching floor grammar, synthesized ambience, and one guardian.
-Biomes add distinct materials and environmental rules, while sharing the room
-construction system. Human combat balancing and broader device performance tests
-remain valuable next steps. Controller support, touch, merchants, ranged enemies,
-weapon exchanges during a run, and mid-run saves are outside this release.
+## Scope
 
-Gameplay video: capture is planned after human balance playtesting; no trailer is
-included. The screenshots here are captured from the actual local build.
+This is a substantial spatial and presentation change, with stylized low-poly actors.
+It does not reproduce the concept's painted character/detail fidelity. Navigation is
+2D; elevation is visual. Water reflections are approximations. There are no ranged
+enemies, controller/touch controls, multiplayer, merchants, or mid-run saves.
 
-## License & credits
-
-Code and original generated art/audio are [MIT](LICENSE). Phaser is MIT; bundled
-Cormorant Garamond and Manrope fonts are SIL OFL 1.1. See [credits](CREDITS.md) and
-`public/licenses/`. The supplied concept is a design reference only and is not
-distributed. Precision combat inspiration does not imply affiliation with any
-commercial game.
+See [v0.2.1 / v0.3 priorities](ROADMAP.md), [credits](CREDITS.md), and the [asset prompt](docs/ASSETS.md).
+Code and original project assets are MIT; dependencies and fonts retain their licenses.

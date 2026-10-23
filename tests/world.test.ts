@@ -36,6 +36,20 @@ function hit(w: World, parryAge = 10, kind = w.enemies[0].strike.kind): void {
 }
 
 describe('live simulation flows', () => {
+  it('keeps ice momentum independent of camera-oriented movement axes', () => {
+    const w = arena();
+    w.enemies = [];
+    w.room.cleared = true;
+    w.floor.biome = 3;
+    w.player.x = 520;
+    w.player.y = 300;
+    w.movement = { x: 1, y: 0.25 };
+    tick(w, 0.2);
+    w.movement = { x: 0, y: 0 };
+    const x = w.player.x;
+    tick(w, 0.1);
+    expect(w.player.x).toBeGreaterThan(x);
+  });
   it('moves, collides with masonry, and stays in the hall', () => {
     const w = arena();
     w.enemies = [];

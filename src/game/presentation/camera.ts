@@ -1,0 +1,124 @@
+import * as T from 'three';
+import { World, distance } from '../world';
+import { globalPosition } from './architecture';
+import { elevationAt } from '../geometry';
+
+export class CameraDirector {
+  readonly camera = new T.PerspectiveCamera(38, 1, 0.12, 250);
+  duel = 0;
+  mode = 'exploration';
+  private look = new T.Vector3();
+  private initialized = false;
+  private engagementDirection = new T.Vector3(1, 0, 0);
+  private wasDuel = false;
+  entryRemaining = 0;
+  private ray = new T.Raycaster();
+  private floor = new T.Plane(new T.Vector3(0, 1, 0), 0);
+  private pointer = new T.Vector2();
+  constructor(private world: World) {}
+  reset() {
+    this.initialized = false;
+    this.duel = 0;
+    this.wasDuel = false;
+    this.entryRemaining = 0;
+  }
+  update(dt: number, playerPosition: T.Vector3): void {
+    const w = this.world,
+      finishing = w.player.state === 'finisher' || w.effects.some((e) => e.kind === 'finish'),
+      target = w.target ?? (finishing ? w.enemies.find((e) => e.state === 'dead') : undefined),
+      menu = w.mode === 'menu';
+    const significant =
+      !!target &&
+      w.alive.length === 1 &&
+      (w.training || w.room.kind === 'elite' || w.room.kind === 'boss' || target.def.cost >= 3);
+    const close = ((significant && distance(w.player, target!) < 270) || finishing) && !menu;
+    if (close && !this.wasDuel && target) {
+      this.engagementDirection = globalPosition(w.room, target.x, target.y)
+        .sub(playerPosition)
+        .setY(0)
+        .normalize();
+      this.entryRemaining = 0.7;
+    }
+    this.entryRemaining = Math.max(0, this.entryRemaining - dt);
+    this.wasDuel = close;
+    this.duel = T.MathUtils.damp(
+      this.duel,
+      close ? 1 : 0,
+      w.save.settings.reducedMotion ? 2.8 : finishing ? 7 : 3.8,
+      dt,
+    );
+    this.mode = this.duel > 0.5 ? 'duel' : 'exploration';
+    const exploreLook = playerPosition.clone().add(new T.Vector3(0, 0.3, 0));
+    const explorePosition = exploreLook.clone().add(new T.Vector3(12.5, 19, 15));
+    if (menu) {
+      exploreLook.add(new T.Vector3(1.5, 0, -1.5));
+      explorePosition.add(new T.Vector3(1.5, 0, -1.5));
+    }
+    const dir = this.engagementDirection,
+      side = new T.Vector3(-dir.z, 0, dir.x);
+    const enemyPosition = target
+      ? globalPosition(w.room, target.x, target.y)
+      : playerPosition.clone().add(dir);
+    const focus = playerPosition
+      .clone()
+      .lerp(enemyPosition, 0.56)
+      .add(new T.Vector3(0, 1.1, 0));
+    const boss = target?.def.id === 'boss';
+    const duelPosition = playerPosition
+      .clone()
+      .addScaledVector(dir, -(boss ? 3.9 : 3.4))
+      .addScaledVector(side, boss ? 4.4 : 3.9)
+      .add(new T.Vector3(0, boss ? 2.8 : 2.35, 0));
+    if (w.player.state === 'finisher' && !w.save.settings.reducedMotion) {
+      duelPosition.addScaledVector(side, -0.5);
+      duelPosition.y -= 0.18;
+      focus.y = 1.15 + playerPosition.y;
+    }
+    const desiredPosition = explorePosition.lerp(duelPosition, this.duel),
+      desiredLook = exploreLook.lerp(focus, this.duel);
+    if (!this.initialized) {
+      this.camera.position.copy(desiredPosition);
+      this.look.copy(desiredLook);
+      this.initialized = true;
+    }
+    const smoothing = w.save.settings.reducedMotion ? 3.5 : 6;
+    this.camera.position.lerp(desiredPosition, 1 - Math.exp(-dt * smoothing));
+    this.look.lerp(desiredLook, 1 - Math.exp(-dt * smoothing));
+    if (w.save.settings.shake && !w.save.settings.reducedMotion && w.shake > 0) {
+      const amount = w.shake * 0.014 * Math.exp(-Math.max(0, dt) * 12);
+      this.camera.position.addScaledVector(dir, Math.sin(w.visualTime * 43) * amount);
+      this.camera.position.y += Math.sin(w.visualTime * 37) * amount * 0.4;
+    }
+    this.camera.fov = T.MathUtils.lerp(38, 46, this.duel);
+    this.camera.lookAt(this.look);
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+  }
+  resize(width: number, height: number) {
+    this.camera.aspect = width / Math.max(1, height);
+    this.camera.updateProjectionMatrix();
+  }
+  screenToWorld(x: number, y: number, width: number, height: number): { x: number; y: number } {
+    this.pointer.set((x / width) * 2 - 1, 1 - (y / height) * 2);
+    this.ray.setFromCamera(this.pointer, this.camera);
+    const intersection = new T.Vector3();
+    let result = { x: this.world.player.x, y: this.world.player.y };
+    for (let i = 0; i < 4; i++) {
+      this.floor.constant = -elevationAt(this.world.room, result.x, result.y) * 0.025;
+      if (!this.ray.ray.intersectPlane(this.floor, intersection)) return result;
+      result = {
+        x: intersection.x / 0.025 - this.world.room.x * 1200 + 560,
+        y: intersection.z / 0.025 - this.world.room.y * 840 + 380,
+      };
+    }
+    return result;
+  }
+  movement(x: number, y: number): { x: number; y: number } {
+    const forward = new T.Vector3();
+    this.camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const right = forward.clone().cross(new T.Vector3(0, 1, 0));
+    return { x: right.x * x - forward.x * y, y: right.z * x - forward.z * y };
+  }
+}

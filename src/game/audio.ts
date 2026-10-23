@@ -1,4 +1,5 @@
 import type { Settings } from './save';
+import { Random } from './random';
 
 type Cue =
   | 'attack'
@@ -16,6 +17,9 @@ export class Audio {
   private context?: AudioContext;
   private drone?: GainNode;
   private phase = false;
+  private biome = 0;
+  private air?: GainNode;
+  private airFilter?: BiquadFilterNode;
   settings: Settings;
   constructor(settings: Settings) {
     this.settings = settings;
@@ -35,6 +39,27 @@ export class Audio {
           osc.connect(this.drone);
           osc.start();
         }
+        const random = new Random('canticle-air'),
+          buffer = this.context.createBuffer(
+            1,
+            this.context.sampleRate * 2,
+            this.context.sampleRate,
+          ),
+          samples = buffer.getChannelData(0);
+        for (let i = 0; i < samples.length; i++) samples[i] = (random.next() * 2 - 1) * 0.3;
+        const source = this.context.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        this.airFilter = this.context.createBiquadFilter();
+        this.airFilter.type = 'bandpass';
+        this.airFilter.Q.value = 0.5;
+        this.air = this.context.createGain();
+        this.air.gain.value = 0;
+        source.connect(this.airFilter);
+        this.airFilter.connect(this.air);
+        this.air.connect(this.context.destination);
+        source.start();
+        this.setBiome(this.biome);
       }
     } catch {
       /* WebAudio is optional on restricted browsers. */
@@ -48,6 +73,23 @@ export class Audio {
         this.context.currentTime,
         0.5,
       );
+    if (this.context && this.air)
+      this.air.gain.setTargetAtTime(
+        paused ? 0 : this.settings.master * this.settings.music * (this.biome === 4 ? 0.18 : 0.08),
+        this.context.currentTime,
+        1,
+      );
+  }
+  setBiome(biome: number): void {
+    this.biome = biome;
+    if (this.airFilter && this.context) {
+      this.airFilter.frequency.setTargetAtTime(
+        [240, 680, 130, 1250, 85][biome],
+        this.context.currentTime,
+        2,
+      );
+      this.airFilter.Q.value = biome === 2 ? 2 : 0.5;
+    }
   }
   play(cue: Cue): void {
     if (!this.context || !this.settings.master || !this.settings.sfx) return;
@@ -55,8 +97,8 @@ export class Audio {
     const frequencies: Record<Cue, number[]> = {
       attack: [180, 70],
       hit: [110, 46],
-      parry: [880, 1320],
-      perfect: [1320, 1980, 2640],
+      parry: [1040, 1487, 2173],
+      perfect: [1260, 1784, 2631, 3781],
       break: [180, 270, 540],
       hurt: [95, 60],
       death: [130, 65],
