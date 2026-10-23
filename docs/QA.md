@@ -1,5 +1,7 @@
 # v0.2.0 QA record
 
+Current review: [v0.4.0 QA](QA-v0.4.md) and [production screenshots](VISUAL_REVIEW-v0.4.md).
+
 Validated locally on 2026-10-23. This records observed checks, not cross-browser
 certification or completed human balance playtesting. [The v0.1 record](QA-v0.1.md)
 preserves the original baseline.

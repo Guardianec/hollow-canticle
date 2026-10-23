@@ -159,6 +159,7 @@ export class Effects {
       }
     let flash = 0;
     for (const e of w.effects) {
+      if (e.projectileKind) continue;
       let mesh = this.active.get(e);
       const rawTime = 1 - e.life / e.maxLife;
       const t = e.kind === 'finish' ? Math.max(0, (rawTime - 0.5) * 2) : rawTime;

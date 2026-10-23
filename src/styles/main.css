@@ -698,7 +698,7 @@ input[type='checkbox'] {
 }
 .reward-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(var(--reward-count, 3), 1fr);
   gap: 15px;
   margin-top: 30px;
 }
@@ -1774,4 +1774,271 @@ body.in-game #stage {
   background: #07111b;
   opacity: 0;
   z-index: 3;
+}
+/* The four vows: real silhouettes above compact, keyboard-accessible choices. */
+#game canvas.close-combat-cursor {
+  cursor: none;
+}
+.wide-dialog:has(#character-gallery) {
+  width: min(1050px, calc(100vw - 40px));
+  padding: 20px 28px;
+  max-height: calc(100dvh - 40px);
+}
+.wide-dialog:has(#character-gallery) .dialog-topline {
+  margin-bottom: 12px;
+}
+.wide-dialog:has(#character-gallery) h2 {
+  font-size: 36px;
+  margin-bottom: 8px;
+}
+.wide-dialog:has(#character-gallery) .dialog-copy {
+  margin-bottom: 8px;
+}
+#character-gallery {
+  height: 210px;
+  width: 100%;
+  background: radial-gradient(ellipse at 50% 95%, #a6c6cb20, transparent 70%);
+}
+#character-gallery canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.character-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+.character-grid .weapon-choice {
+  min-height: 100px;
+  gap: 8px;
+  padding: 14px 12px;
+  opacity: 0.62;
+  transition:
+    opacity 160ms,
+    border-color 160ms,
+    box-shadow 160ms;
+}
+.character-grid .weapon-choice strong {
+  font-size: 23px;
+}
+.character-grid .weapon-choice.selected {
+  opacity: 1;
+  border: 2px solid #e4e4ca;
+  box-shadow:
+    0 0 24px #bfdbd633,
+    inset 0 0 24px #bfdbd611;
+  background: #273d4190;
+}
+.weapon-choice:focus-visible {
+  outline: 2px solid #fff0c5;
+  outline-offset: 4px;
+}
+.selection-mark {
+  font-size: 9px !important;
+  letter-spacing: 1.6px;
+  color: #dce6cc !important;
+  margin-top: 9px;
+}
+#character-details {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 30px;
+  padding: 19px 0;
+  border-bottom: 1px solid #c6b98e33;
+}
+#character-details p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b8c5c8;
+  margin: 7px 0;
+}
+#character-details strong {
+  font:
+    25px 'Cormorant Garamond',
+    serif;
+  color: #e1d5b6;
+}
+#character-details small,
+.passive-note {
+  color: #c9bd9f;
+  font-size: 11px;
+}
+.character-ratings {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+}
+.character-ratings dt {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  color: #8eaaae;
+}
+.character-ratings dd {
+  margin: 5px 0;
+  font-size: 11px;
+  color: #ece0c5;
+}
+.arsenal-hud {
+  position: absolute;
+  left: 34px;
+  top: 155px;
+  color: #d8d7c4;
+  text-shadow: 0 2px 5px #000;
+}
+.charge-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.ranged-charges {
+  display: flex;
+  gap: 7px;
+  margin: 6px 0 14px;
+}
+.ranged-charges > span {
+  position: relative;
+  overflow: hidden;
+  width: 23px;
+  height: 29px;
+  border: 1px solid #aecdd24d;
+  color: #586c71;
+  text-align: center;
+  font-size: 24px;
+  line-height: 27px;
+}
+.ranged-charges > span.full {
+  color: #e8e0bc;
+  border-color: #ded5ab;
+  background: #c4d9cb18;
+  box-shadow: 0 0 9px #b9dbcd33;
+}
+.ranged-charges > span.restored {
+  box-shadow: 0 0 15px #e0f3c98c;
+  background: #d7ebbe44;
+}
+.ranged-charges i {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #afdbd13d;
+}
+.satchel {
+  font-size: 11px;
+  max-width: 210px;
+}
+.satchel small {
+  display: block;
+  color: #9cb3b8;
+  font-size: 9px;
+  margin: 6px 0;
+}
+.active-buffs {
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+}
+.active-buffs > span {
+  position: relative;
+  font-size: 21px;
+  width: 31px;
+  text-align: center;
+  background: #10292ac9;
+  border: 1px solid #a4c2b76b;
+  padding: 2px 0 7px;
+}
+.active-buffs small {
+  display: block;
+  font-size: 9px;
+}
+.active-buffs i {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: #c5dac5;
+}
+.projectile-warnings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.projectile-warnings i {
+  position: absolute;
+  color: #ffd694;
+  font:
+    32px 'Cormorant Garamond',
+    serif;
+  text-shadow: 0 0 12px #f7b355;
+}
+.pickup-detail {
+  position: absolute;
+  left: 50%;
+  bottom: 13%;
+  transform: translateX(-50%);
+  max-width: 360px;
+  color: #c3d6d2;
+  font-size: 11px;
+  background: #07191bd9;
+  padding: 8px 15px;
+  text-align: center;
+}
+@media (max-width: 800px) {
+  #character-gallery {
+    height: 200px;
+  }
+  .character-grid .weapon-choice {
+    padding: 9px 6px;
+  }
+  .character-grid .weapon-choice strong {
+    font-size: 18px;
+  }
+  #character-details {
+    gap: 16px;
+  }
+  .character-ratings {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .arsenal-hud {
+    left: 18px;
+    top: 135px;
+  }
+}
+@media (max-width: 520px) {
+  .character-grid .weapon-choice {
+    min-width: 0;
+    overflow-wrap: normal;
+  }
+  .character-grid .weapon-choice > span:not(.eyebrow):not(.selection-mark) {
+    font-size: 9px;
+    line-height: 1.4;
+  }
+  #character-gallery {
+    height: 145px;
+  }
+  .character-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .character-grid .weapon-choice strong {
+    font-size: 18px;
+  }
+  .character-grid .weapon-choice .eyebrow {
+    font-size: 7px;
+  }
+  #character-details {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .character-ratings {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .character-grid .weapon-choice {
+    transition: none;
+  }
 }

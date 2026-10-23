@@ -37,16 +37,50 @@ export function posturePressure(
   );
 }
 
-export type Action = 'attack' | 'parry' | 'dodge' | 'interact' | 'technique';
+export type Action =
+  'attack' | 'heavy' | 'ranged' | 'item' | 'parry' | 'dodge' | 'interact' | 'technique';
+/** Pick the visible opponent lying closest to a relative mouse gesture. */
+export function directionalFocus(
+  points: { id: number; x: number; y: number }[],
+  current: number,
+  dx: number,
+  dy: number,
+): number | undefined {
+  const origin = points.find((p) => p.id === current);
+  if (!origin || !Math.hypot(dx, dy)) return;
+  const candidates = points
+    .filter((p) => p.id !== current)
+    .map((p) => {
+      const x = p.x - origin.x,
+        y = p.y - origin.y,
+        length = Math.hypot(x, y);
+      const dot = (x * dx + y * dy) / (Math.max(0.001, length) * Math.hypot(dx, dy));
+      return { id: p.id, dot, score: dot - length * 0.05 };
+    })
+    .filter((p) => p.dot > 0.1)
+    .sort((a, b) => b.score - a.score);
+  if (candidates[0]) return candidates[0].id;
+  const ordered = [...points].sort((a, b) => a.x - b.x || a.id - b.id);
+  const index = ordered.findIndex((p) => p.id === current),
+    direction = Math.abs(dx) >= Math.abs(dy) ? Math.sign(dx) : Math.sign(dy);
+  return ordered[(index + direction + ordered.length) % ordered.length]?.id;
+}
+
 export class InputBuffer {
   private queue: { action: Action; until: number }[] = [];
   push(action: Action, time: number): void {
     this.queue = this.queue.filter((e) => e.action !== action);
-    this.queue.push({ action, until: time + BALANCE.buffer });
+    this.queue.push({
+      action,
+      until: time + (action === 'attack' || action === 'heavy' ? 0.65 : BALANCE.buffer),
+    });
   }
   consume(time: number, allowed: (action: Action) => boolean): Action | undefined {
     this.queue = this.queue.filter((e) => e.until >= time);
-    const index = this.queue.findIndex((e) => allowed(e.action));
+    const defensive = this.queue.findIndex(
+      (e) => (e.action === 'parry' || e.action === 'dodge') && allowed(e.action),
+    );
+    const index = defensive >= 0 ? defensive : this.queue.findIndex((e) => allowed(e.action));
     if (index < 0) return;
     return this.queue.splice(index, 1)[0].action;
   }

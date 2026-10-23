@@ -1,4 +1,5 @@
 import { WEAPONS, RELICS } from './data';
+import type { RunStats } from './world';
 
 export interface Settings {
   master: number;
@@ -9,9 +10,10 @@ export interface Settings {
   assist: boolean;
   reducedMotion: boolean;
   quality: boolean;
+  strongOutline: boolean;
 }
 export interface Save {
-  version: 1;
+  version: 2;
   settings: Settings;
   tutorial: boolean;
   runs: number;
@@ -21,10 +23,37 @@ export interface Save {
   weapons: string[];
   relics: string[];
   unlocks: string[];
+  characters: string[];
+  arsenalTutorial: boolean;
 }
 export const SAVE_KEY = 'hollow-canticle:v1';
+export const RUN_HISTORY_KEY = 'hollow-canticle:local-runs:v1';
+export function recordRun(
+  seed: string,
+  character: string,
+  depth: number,
+  stats: RunStats,
+): boolean {
+  try {
+    const raw = localStorage.getItem(RUN_HISTORY_KEY);
+    let history: unknown = [];
+    try {
+      history = raw && raw.length < 100000 ? JSON.parse(raw) : [];
+    } catch {
+      /* Recover a damaged local history. */
+    }
+    const recent = Array.isArray(history) ? history.slice(-9) : [];
+    localStorage.setItem(
+      RUN_HISTORY_KEY,
+      JSON.stringify([...recent, { seed, character, depth, stats }]),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 export const defaultSave = (): Save => ({
-  version: 1,
+  version: 2,
   settings: {
     master: 0.65,
     music: 0.4,
@@ -35,6 +64,7 @@ export const defaultSave = (): Save => ({
     reducedMotion:
       typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches,
     quality: true,
+    strongOutline: false,
   },
   tutorial: false,
   runs: 0,
@@ -44,13 +74,20 @@ export const defaultSave = (): Save => ({
   weapons: ['sword'],
   relics: [],
   unlocks: [],
+  characters: ['sword'],
+  arsenalTutorial: false,
 });
 
 export function parseSave(raw: string | null): Save {
   const fallback = defaultSave();
   try {
     const parsed: unknown = JSON.parse(raw || 'null');
-    if (!parsed || typeof parsed !== 'object' || !('version' in parsed) || parsed.version !== 1)
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !('version' in parsed) ||
+      (parsed.version !== 1 && parsed.version !== 2)
+    )
       return fallback;
     const source = parsed as Record<string, unknown>;
     const settings =
@@ -62,7 +99,14 @@ export function parseSave(raw: string | null): Save {
       if (typeof v === 'number' && Number.isFinite(v))
         fallback.settings[key] = Math.max(0, Math.min(1, v));
     }
-    for (const key of ['shake', 'flashes', 'assist', 'reducedMotion', 'quality'] as const)
+    for (const key of [
+      'shake',
+      'flashes',
+      'assist',
+      'reducedMotion',
+      'quality',
+      'strongOutline',
+    ] as const)
       if (typeof settings[key] === 'boolean') fallback.settings[key] = settings[key];
     for (const key of ['runs', 'bestDepth', 'kills', 'embers'] as const) {
       const v = source[key];
@@ -81,6 +125,16 @@ export function parseSave(raw: string | null): Save {
     fallback.unlocks = ['twins', 'spear', 'great'].filter(
       (id) => Array.isArray(source.unlocks) && source.unlocks.includes(id),
     );
+    fallback.characters = [
+      'sword',
+      ...['twins', 'spear', 'great'].filter(
+        (id) =>
+          fallback.unlocks.includes(id) ||
+          fallback.weapons.includes(id) ||
+          (Array.isArray(source.characters) && source.characters.includes(id)),
+      ),
+    ];
+    fallback.arsenalTutorial = source.arsenalTutorial === true;
     return fallback;
   } catch {
     return fallback;

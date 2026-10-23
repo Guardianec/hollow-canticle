@@ -256,6 +256,12 @@ export function encounter(
   depth: number,
 ): string[] {
   if (kind === 'boss') return ['boss'];
+  const ranged = ENEMIES.filter(e => ['archer', 'hexer'].includes(e.id) && e.affinity.includes(biome));
+  if ((kind === 'combat' || kind === 'elite') && depth >= 2 && rng.next() < (depth < 4 ? 0.27 : 0.38)) {
+    const support = rng.pick(ranged);
+    const front = ENEMIES.filter(e => !['boss', 'archer', 'hexer'].includes(e.id) && e.affinity.includes(biome) && e.cost + support.cost <= budget);
+    if (front.length) return [rng.pick(front).id, support.id];
+  }
   if (kind === 'elite')
     return [
       rng.pick(ENEMIES.filter((e) => e.cost >= 4 && e.id !== 'boss' && e.affinity.includes(biome)))
@@ -280,7 +286,7 @@ export function encounter(
   });
   if (pairs.length && rng.next() < 0.7) return [...rng.pick(pairs)];
   const pool = ENEMIES.filter(
-      (e) => e.id !== 'boss' && e.cost <= budget && e.affinity.includes(biome),
+      (e) => !['boss', 'archer', 'hexer'].includes(e.id) && e.cost <= budget && e.affinity.includes(biome),
     ),
     first = rng.pick(pool),
     result = [first.id],

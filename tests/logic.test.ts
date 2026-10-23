@@ -143,7 +143,7 @@ describe('persistence and content validation', () => {
         '{"version":1,"settings":{"master":8,"assist":"true"},"embers":-10,"unlocks":["spear","injected"],"weapons":["great"]}',
       ),
     ).toMatchObject({
-      version: 1,
+      version: 2,
       embers: 0,
       settings: { master: 1, assist: false },
       unlocks: ['spear'],
@@ -157,9 +157,9 @@ describe('persistence and content validation', () => {
     save.tutorial = true;
     expect(parseSave(JSON.stringify(save))).toEqual(save);
   });
-  it('has unique content IDs, four distinct weapons, and eighteen relic hooks', () => {
-    expect(new Set(ENEMIES.map((e) => e.id)).size).toBe(9);
-    expect(new Set(RELICS.map((e) => e.id)).size).toBe(18);
+  it('has unique content IDs, four distinct weapons, and twenty-two relic hooks', () => {
+    expect(new Set(ENEMIES.map((e) => e.id)).size).toBe(11);
+    expect(new Set(RELICS.map((e) => e.id)).size).toBe(22);
     expect(new Set(WEAPONS.map((e) => e.reach)).size).toBe(4);
     for (const e of ENEMIES) {
       expect(e.patterns.length).toBeGreaterThan(0);

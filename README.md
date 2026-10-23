@@ -1,22 +1,24 @@
-# Hollow Canticle - v0.3.0 review build
+# Hollow Canticle — v0.4.0 review build
 
-A procedural action dungeon crawler about reading a blade, breaking a guard, and keeping an oath.
+A procedural melee action roguelike about reading a blade, breaking a guard, and keeping an oath.
 
-**v0.3 adds character proportions and stances, sampled combat animation, overlapping enemy pressure, and a new Saint phase-two mechanic to the existing WebGL dungeon.** Combat remains fixed-step and authoritative. This is a review build; full-run human balance sign-off remains outstanding.
+v0.4 builds on accepted v0.3 commit `17dd5e932f48609993fee133185265fe0e701400`.
+Four Pilgrims bring different melee chains and rechargeable ranged offerings. Archers and
+Acolytes add physical projectiles that can be deflected or perfectly reflected. Consumables,
+timed effects and seeded room loot vary the journey before relic combinations develop.
 
-![v0.3 ruins exploration](docs/screenshots/v03/exploration-ruins.jpg)
+![Four Pilgrims and the selected-character outline](docs/screenshots/v04/character-selection.jpg)
 
 ## Play
 
-Use Node 24 LTS, then:
+Use Node 24 LTS:
 
 ```sh
 npm install
 npm run dev
 ```
 
-Choose **Learn the rhythm** for safe training, or **Begin the descent** for a seeded run.
-Keyboard and mouse are required. Phone layouts provide a keyboard requirement notice.
+Production checks and preview:
 
 ```sh
 npm run lint
@@ -25,121 +27,159 @@ npm run build
 npm run preview
 ```
 
-Production files are in `dist/`. Everything runs as a static site, including fonts,
-original stone texture, local saves, and synthesized audio. There is no backend,
-account, analytics service, or runtime third-party asset request.
+The game is a static site. Fonts, original textures, geometry, synthesized audio and saves
+stay local. Keyboard and mouse are required; mobile layouts support the menus.
 
-## Combat personality
+## Four Pilgrims
 
-- An angled exploration camera follows the player through raised platforms,
-  bridges, stairs, ruined cloisters, courtyards, libraries, and chasm crossings.
-- Foundations, lower bridges, distant towers, broken arches, statues, hanging cages,
-  banners, chains, foliage, and fog establish several visible depth layers.
-- Moonlight, six nearby torch lights, contact shadows, localized impact light, and
-  restrained bloom contrast warm light with cool unlit stone.
-- Every archetype has a body/stance profile. Elbows, knees, two-handed support grips,
-  cloth response, asymmetric armor, the clawed Beast, and the Saint's mantle/crown
-  transformation give the constructed character style more identity.
-- Sampled multijoint clips distinguish slash, thrust, sweep, smash, grab, and feint;
-  cut variants and four weapon executions blend with guard and locomotion.
-- Two enemies can prepare together. Immutable impact reservations preserve a defense
-  interval, with longer gaps around attacks that demand an evade.
-- Empty parries add guard strain and narrow the normal window. Oathkeeper now has a
-  220 ms normal window; the 85 ms perfect window and input buffer are retained.
-- Contextual mixups, authored pairs, behavioral elites, and deeper combo sequences add
-  pressure. Phase two of the Saint introduces a telegraphed delayed floor echo.
-- Groups use a cinematic combat-wide camera; bosses and executions have their own framing.
-  Weapon-specific trails, a blue-white deflection core, contact light, and biome impact
-  particles reinforce contact. Foreground architecture retains its visibility cutout.
+| Pilgrim        | Melee identity                                                                   | Ranged offering                                                | Capacity / sequential recharge | Inherent trait                                    |
+| -------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------ | ------------------------------------------------- |
+| Oathkeeper     | Balanced cuts, advancing sweep, finishing point; forgiving guard                 | Silver Needle: fast, precise posture tool                      | 3 / 8 seconds per charge       | Perfect parries advance recharge by 1 second      |
+| Moth           | Alternating hands, cross cut, step-through sweep; quick, close pressure          | Moth Knives: one quick knife per press                         | 5 / 5 seconds                  | Fourth-chain hits advance recharge by 0.8 seconds |
+| Pilgrim Lancer | Long, short and advancing thrusts, retreating sweep; spacing and counters        | Pilgrim’s Javelin: committed throw, pierces one additional foe | 2 / 11 seconds                 | Reflections deal 20% more posture pressure        |
+| Bellbearer     | Full-body cuts, reverse sweep, overhead and shouldered thrust; crushing pressure | Last Toll: narrow travelling ground resonance                  | 2 / 12.5 seconds               | Guard breaks advance recharge by 2 seconds        |
 
-![v0.3 perfect deflection](docs/screenshots/v03/perfect-parry.jpg)
+Each has a four-step chain, a dedicated counter, a heavy input, a dodge follow-up and an
+advancing opener. Waiting resets the chain. Attack buffering and recovery cancels preserve
+parry/dodge response; simulation startup and recovery also drive animation timing.
 
-See the [v0.3 visual review](docs/VISUAL_REVIEW-v0.3.md).
+The Oathkeeper starts unlocked. Chronicle unlock prices remain 4 / 8 / 12 embers for the
+Moth / Lancer / Bellbearer. All four models can be previewed. Existing weapon unlocks and
+previously used weapons migrate to their corresponding Pilgrims.
 
-## Dungeon generation
+## Focus and camera
 
-Floors contain **14–19 areas**, including a turning main route, a protected guardian
-and exit, at least one loop, recovery and reward branches, optional fights, and a
-secret leaf. Topology itself varies by seed. Ten architectural grammars assemble
-irregular platforms, connecting arms, alcoves, narrow bridges, and elevated sections.
-The same surface definitions drive rendering, collision, and navigation.
+The selected Pilgrim is outlined in the menu. **In gameplay the focused enemy receives the
+outline**, following the requested control correction. The player retains the dungeon’s rim
+lighting. A stronger focus-outline accessibility setting is available.
 
-A seeded semantic decoration pass populates edges, features, architecture, and light
-anchors. Biome affinities, encounter budgets, compatible pairs, and recent-template
-suppression control content. Enemies use navigation paths when a straight approach
-would cross a gap. Room boundaries become real arches and closing gates.
+In cinematic combat, the cursor disappears and the player faces the focused opponent.
+Move the mouse toward another opponent to switch focus; a motion threshold and short
+cooldown prevent jitter. Tab / Shift+Tab also cycle focus. Clicking the combat canvas requests
+relative mouse capture when supported; cursor hiding and gesture selection also work without
+capture. Leaving close framing restores the cursor and free aiming. Pause restores menu input.
 
-Five biome families remain: **Forgotten Ruins, Drowned Shrine, Fungal Choir, Winter
-Cloister, and Ember Foundry**. Water and waterfalls, giant fungi and roots, snow and
-icicles, or lava, furnaces and mechanisms distinguish them. Stair areas introduce
-materials from the next biome; deeper floors combine a second biome's features.
+The enemy title, posture bar, melee/ranged targeting, camera and outline use the same focus.
+A defeated target falls back to a living opponent. Incoming projectiles widen framing and
+receive edge warnings when outside the view. Primary enemies hold duel spacing; secondary
+melee enemies use a wider approach. Architecture retains the accepted foreground cutout.
 
-## Combat and controls
+![Focused opponent in mixed combat](docs/screenshots/v04/focused-enemy.jpg)
 
-Vitality is life. Guard is posture damage accumulated toward a break. Deflect normal
-strikes, evade sweeps/grabs/smashes, and answer a deflection with an immediate counter.
-A greatblade can perfectly turn a smash. Maintain pressure to prevent guard recovery.
-When guard breaks, approach and press E before the enemy regains its footing.
+## Ranged pressure and reflection
 
-| Input           | Action                                                  |
-| --------------- | ------------------------------------------------------- |
-| WASD / arrows   | Move relative to the camera                             |
-| Mouse           | Aim through ground raycasting and soft target selection |
-| J / left mouse  | Strike / counter                                        |
-| K / right mouse | Deflect                                                 |
-| Space           | Evade                                                   |
-| E               | Interact, cross a passage, or execute a broken opponent |
-| Q               | Resonance at 100 Focus                                  |
-| Esc             | Pause                                                   |
-| 1 / 2 / 3       | Choose a relic                                          |
+Ashen Archers support ruins, frozen and foundry encounters. Bell Acolytes support shrine and
+fungal encounters. Eligible compositions roll ranged support at 27% on depths 2–3 and 38%
+thereafter, subject to encounter budget. Depth 1 remains melee-only outside training/lab.
+At most one support shooter is generated per normal composition, always with a melee front.
 
-The existing eight enemy archetypes, two-phase Unrung Saint, four weapon identities,
-and eighteen relics are retained. Embers unlock starting weapons in the Chronicle;
-relic discoveries and settings persist. Active runs do not survive reloads.
+Archers vary normal, delayed and quick arrows. Acolytes vary slow, delayed and charged orbs.
+They reposition for line of sight, retreat under pressure, and use a weak close strike when
+cornered. Deeper shots use bounded prediction before release. Released arrows never home.
+The Saint gains an orb attack in each phase. All old archetypes gain additional sequences.
 
-## Architecture and validation
+Arrows, orbs, needles, knives, javelins and waves share a swept 2D collision simulation.
+Room boundaries and major obstacles stop projectiles. Unreflected enemy shots ignore allies.
+Normal parries dissipate shots and reward Focus/guard recovery. Perfect parries return them
+toward their shooter, or a remaining hostile, at 1.3× speed with 1.6× HP damage and 62 posture
+pressure. Reflected shots cannot hit the player. Dodge and finisher protection also apply.
 
-TypeScript and Phaser own scene lifecycle and fixed-step game simulation. Three.js
-owns the render-only 2.5D world, articulated rigs, lights, particles, and camera.
-HTML menus and HUD remain independent of the 3D scene. The game uses no 3D physics.
+Arrow defense uses a metallic fan and ping; magic uses compression rings and a deeper resonance.
+Effects originate at actual projectile contact. Ranged abilities cost charges at commitment,
+release after their cast startup, and regenerate one charge at a time during simulation time.
+Rooms do not refill them. Low HP damage, posture recovery at distance, and melee finishers
+keep ranged tools tactical.
 
-`npm test` runs combat/save regression tests, 10,000 seeded floor checks, physical
-geometry and decoration validation, navigation tests, and camera-coordinate tests.
-See [architecture](docs/ARCHITECTURE.md), [v0.3 QA](docs/QA-v0.3.md), and [design](docs/GAME_DESIGN.md).
+![A perfectly reflected orb](docs/screenshots/v04/orb-reflection.jpg)
 
-Append `?debug` for the combat laboratory: enemy/support/count, elite, biome, depth,
-pattern, weapon and camera selection; invulnerability, slow motion, clip freezing/
-scrubbing, fixed-step advance, boss phase reveal, timing/reservation telemetry, and
-the existing generation/relic tools.
+## Offerings and temporary effects
 
-## Performance and accessibility
+Carry five consumables total, at most two of a kind, with one selected offering and reserves.
+Use times are 0.35–0.6 seconds. Damage interrupts use and the committed item is lost. Equal
+buffs refresh duration instead of stacking; different effects coexist. Duration counts down
+only while simulation advances and carries across rooms/floors, then clears on death/restart.
 
-Static architecture is instanced per room for frustum culling. Beveled blocks use a
-small mesh; rigid armor parts merge per animated joint. There are six nearby torch
-lights and one shadow-casting moonlight. Particles are capped, and old floor resources
-are released on descent. Renderer dependencies are separate production chunks.
+| Offering       | Effect                                               |
+| -------------- | ---------------------------------------------------- |
+| Crimson Vial   | Restore up to 30 HP after a 0.6-second drink         |
+| Quiet Water    | Restore up to 25 HP over 8 seconds                   |
+| Iron Incense   | 35% less incoming posture damage for 15 seconds      |
+| Bell Oil       | 20% more posture pressure for 12 seconds             |
+| Moth Draught   | 15% faster melee for 12 seconds                      |
+| Pilgrim Salt   | 30% stronger counter posture pressure for 14 seconds |
+| Ash Cordial    | 60% faster recharge for 16 seconds                   |
+| Glass Tonic    | +35% damage and +20% incoming damage for 12 seconds  |
+| Silver Powder  | Restore one ranged charge; rare                      |
+| Warding Thread | Absorb one hit within 20 seconds; one ward maximum   |
 
-Settings include audio, parry assistance, reduced motion, impact flashes, camera
-shake, and atmospheric quality. Turning atmospheric effects off also disables bloom
-and shadow maps. Node 22.12 can build and test, but Node 24 avoids a linter dependency's
-22.13 engine recommendation. Performance still depends on device/GPU and viewport.
+Physical pickups use vial, incense, pouch and charm forms with ground halos. Approach and
+interact to collect; full satchels leave the pickup in place. A new run starts with one vial.
 
-## Deployment
+## Less predictable relics
 
-CI validates pushes and pull requests. The Pages workflow builds and publishes from
-`main`. Push to a GitHub repository, then choose **Settings → Pages → Source → GitHub
-Actions**. Vite's relative base supports repository subpaths.
+Ordinary combat starts with a **24% relic-offering chance**, replacing the guaranteed relic.
+Misses add 2.5 percentage points, capped at +15, until the next relic roll. Elite / treasure /
+secret base chances are 72% / 90% / 95%. Bosses guarantee a strong offering. Shrines grant a
+30% relic / 70% temporary blessing interaction.
 
-Repository: [Guardianec/hollow-canticle](https://github.com/Guardianec/hollow-canticle).
-Pages target: [Play Hollow Canticle](https://guardianec.github.io/hollow-canticle/).
-Deployment runs validate the source before publishing the static build.
+After an ordinary non-relic roll, relative weights are 25 empty / 20 embers / 20 consumable /
+6 healing / 5 blessing. Empty outcomes simply reopen the room. Relic choices vary from one
+to three; bosses/secrets offer three when enough remain, and boss choices exclude Faded relics.
 
-## Scope
+There are 22 relics, including Returning Hymn, Hunter’s Prayer, Still Quiver and Glass Arrow.
+Each run has nine seeded non-Sacred relics and two Sacred possibilities. Faded / Rare / Sacred
+choice weights are 6 / 3 / 0.5, with stronger Sacred weight in boss/secret rooms. Exhausted
+pools yield Silver Powder instead of repeat relics or free healing.
 
-This is a substantial spatial and presentation change, with stylized low-poly actors.
-It does not reproduce the concept's painted character/detail fidelity. Navigation is
-2D; elevation is visual. Water reflections are approximations. There are no ranged
-enemies, controller/touch controls, multiplayer, merchants, or mid-run saves.
+Audits over 200 six-floor main routes with one reward branch averaged 26.63% ordinary relic
+rolls and 1.84 / 1.90 / 2.12 / 1.81 / 1.67 / 1.03 acquired relics per successive floor.
+Full-clear routes exhaust the finite run pool sooner; unexplored relic families remain for
+other seeds. See the QA report for exact sampling assumptions and healing supply.
 
-See [review priorities](ROADMAP.md), [credits](CREDITS.md), and the [asset prompt](docs/ASSETS.md).
-Code and original project assets are MIT; dependencies and fonts retain their licenses.
+## Controls
+
+| Input                           | Action                                 |
+| ------------------------------- | -------------------------------------- |
+| WASD / arrows                   | Move relative to the camera            |
+| J / left mouse                  | Chain strike; counter after a parry    |
+| K / right mouse                 | Parry steel, arrows and orbs           |
+| Space                           | Dodge                                  |
+| L / Shift+left mouse            | Heavy strike                           |
+| R / middle mouse                | Ranged offering                        |
+| Mouse movement in close combat  | Switch focused opponent; cursor hidden |
+| Tab / Shift+Tab in close combat | Cycle focused opponent                 |
+| E                               | Interact / execute a broken opponent   |
+| Q                               | Use selected consumable                |
+| 1 / 2                           | Cycle the satchel                      |
+| F                               | Release Resonance at 100 Focus         |
+| Esc                             | Pause; also leaves mouse capture       |
+
+## Existing world and local progression
+
+The accepted procedural dungeon, ten architectural grammars, five biomes, 14–19-area floors,
+loops, secrets, elites, two-phase Saint, articulated actors, sampled clips, biome effects,
+and execution camera remain. Combat/navigation stay 2D-authoritative; elevation is visual.
+
+Save schema v2 retains the existing storage key and migrates v1 settings, discoveries,
+progress and unlocks. Active runs, inventory and buffs are not saved between browser sessions.
+The ten most recent normal-run summaries stay in `hollow-canticle:local-runs:v1`, including
+charges, hits, reflections, items, actual healing, buff uptime and relics per floor. Training
+and laboratory runs do not write progression or history. Nothing is uploaded.
+
+`?debug` enables the Combat Laboratory: encounter/character/biome selection, frame stepping,
+projectile speed/type, charge/recharge controls, item give/drop/use, buff activation, forced
+loot categories, 10,000-roll audit, collision/path display and local run statistics.
+
+## Verification and limits
+
+See [v0.4 QA](docs/QA-v0.4.md), [architecture](docs/ARCHITECTURE.md),
+[screenshot review](docs/VISUAL_REVIEW-v0.4.md), and [roadmap](ROADMAP.md).
+
+This is a review candidate. Automated regressions, production input/visual checks and three
+short ordinary-run attempts were performed. Several complete multi-floor human playthroughs,
+experienced-player balance sign-off, sustained GPU profiling and broader browser testing
+remain outstanding. No minimum FPS or full release-acceptance claim is made. There are no
+accounts, remote analytics, premium currency, multiplayer, touch/controller gameplay, active-run
+resume, terrain IK or physics-driven projectiles.
+
+Code and original assets: MIT. Third-party attributions are in [CREDITS.md](CREDITS.md).

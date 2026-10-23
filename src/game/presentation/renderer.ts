@@ -12,6 +12,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ArsenalArt } from './arsenal';
+import { directionalFocus } from '../combat';
 
 export class Renderer {
   readonly webgl: T.WebGLRenderer;
@@ -21,6 +23,7 @@ export class Renderer {
   private art?: DungeonArt;
   private floor?: Floor;
   private player: Actor;
+  private arsenal: ArsenalArt;
   private actors = new Map<number, Actor>();
   private revision = -1;
   private hud: Hud;
@@ -85,6 +88,8 @@ export class Renderer {
     }
     this.director = new CameraDirector(world);
     this.player = new Actor(this.materials, 'player', true);
+    this.arsenal = new ArsenalArt(world, parent);
+    this.scene.add(this.arsenal.root);
     this.scene.add(this.player.root);
     this.composer = new EffectComposer(this.webgl);
     this.composer.addPass(new RenderPass(this.scene, this.director.camera));
@@ -153,6 +158,13 @@ export class Renderer {
   }
   draw(dt: number): void {
     const w = this.world;
+    if (this.player.id !== `player-${w.weapon.id}`) {
+      this.scene.remove(this.player.root);
+      this.player.dispose();
+      this.player = new Actor(this.materials, `player-${w.weapon.id}`, true);
+      this.scene.add(this.player.root);
+    }
+    this.player.setOutline(0);
     const changedFloor = this.floor !== w.floor;
     if (changedFloor) {
       if (this.floor) {
@@ -255,6 +267,13 @@ export class Renderer {
         this.scene.add(actor.root);
       }
       actor.root.position.copy(globalPosition(w.room, e.x, e.y));
+      actor.setOutline(
+        e === w.target && w.mode !== 'menu' && e.state !== 'dead'
+          ? w.save.settings.strongOutline
+            ? 1
+            : 0.78
+          : 0,
+      );
       const animation = actor.animate(
         e,
         w.time,
@@ -352,6 +371,7 @@ export class Renderer {
     }
     this.dust.geometry.attributes.position.needsUpdate = true;
     this.effects.update(this.director.camera, duel);
+    this.arsenal.update(this.director.camera);
     this.hud.update(duel);
     this.webgl.shadowMap.enabled = w.save.settings.quality;
     this.webgl.info.reset();
@@ -370,12 +390,25 @@ export class Renderer {
     this.fade = Math.max(0, this.fade - dt * 1.6);
     this.veil.style.opacity = String(this.fade);
   }
+  focusByPointer(dx: number, dy: number): void {
+    const w = this.world,
+      target = w.target;
+    if (!target) return;
+    const points = w.alive.map((e) => {
+      const p = globalPosition(w.room, e.x, e.y);
+      p.y += 1;
+      p.project(this.director.camera);
+      return { id: e.id, x: p.x * this.director.camera.aspect, y: -p.y };
+    });
+    w.focusEnemy(directionalFocus(points, target.id, dx, dy) ?? target.id);
+  }
   destroy(): void {
     this.observer.disconnect();
     this.composer.dispose();
     this.bloom.dispose();
     this.output.dispose();
     this.effects.dispose();
+    this.arsenal.dispose();
     this.player.dispose();
     for (const actor of this.actors.values()) actor.dispose();
     this.webgl.dispose();

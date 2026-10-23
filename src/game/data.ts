@@ -7,6 +7,8 @@ export interface Strike {
   reach: number;
   step?: number;
   echo?: boolean;
+  projectile?: 'arrow' | 'orb';
+  projectileRadius?: number;
 }
 const strike = (
   kind: AttackKind,
@@ -229,7 +231,88 @@ export const ENEMIES: EnemyDef[] = [
       ],
     ],
   },
+  {
+    id: 'archer',
+    name: 'Ashen Archer',
+    role: 'Ranged support',
+    hp: 40,
+    posture: 58,
+    speed: 94,
+    cost: 2,
+    color: '#bfa486',
+    scale: 1,
+    affinity: [0, 3, 4],
+    reaction: 'retreat',
+    patterns: [
+      [{ ...strike('thrust', 1.05, 1.3, 12, 650), projectile: 'arrow' }],
+      [{ ...strike('thrust', 1.5, 1.2, 15, 650), projectile: 'arrow' }],
+      [{ ...strike('thrust', 0.75, 1.6, 10, 580), projectile: 'arrow' }],
+    ],
+  },
+  {
+    id: 'hexer',
+    name: 'Bell Acolyte',
+    role: 'Resonant caster',
+    hp: 46,
+    posture: 64,
+    speed: 75,
+    cost: 3,
+    color: '#a9c9be',
+    scale: 1.04,
+    affinity: [1, 2],
+    reaction: 'counter',
+    patterns: [
+      [{ ...strike('thrust', 1.25, 1.5, 15, 590), projectile: 'orb' }],
+      [{ ...strike('thrust', 1.9, 1.7, 21, 620), projectile: 'orb', projectileRadius: 19 }],
+      [{ ...strike('thrust', 1.6, 1.3, 12, 560), projectile: 'orb' }],
+    ],
+  },
 ];
+
+// Additional tools reuse the accepted articulated attack vocabulary.
+const extraPatterns: Record<string, Strike[][]> = {
+  warden: [
+    [{ ...strike('thrust', 0.6, 0.85, 9, 75), step: 15 }],
+    [strike('smash', 1.5, 1, 21, 115)],
+  ],
+  shield: [
+    [{ ...strike('thrust', 0.8, 0.9, 16, 85), step: 32 }],
+    [strike('slash', 0.65, 0.3), strike('smash', 1.45, 1.2, 24)],
+  ],
+  duelist: [
+    [{ ...strike('thrust', 1.55, 0.8, 17, 145), step: -18 }],
+    [strike('feint', 0.4, 0.2), strike('feint', 0.55, 0.2), strike('slash', 0.9)],
+  ],
+  spear: [[{ ...strike('sweep', 1.3, 0.9, 17, 175), step: -12 }]],
+  assassin: [
+    [strike('slash', 0.55, 0.2), { ...strike('slash', 0.5, 0.8), step: 36 }],
+    [strike('sweep', 1.3, 1, 17, 115)],
+  ],
+  monk: [
+    [
+      strike('thrust', 0.65, 0.25, 12, 120),
+      strike('slash', 0.7, 0.25),
+      strike('sweep', 1.5, 1, 19, 140),
+    ],
+  ],
+  brute: [
+    [{ ...strike('thrust', 1.05, 0.25, 20, 125), step: 42 }, strike('smash', 0.75, 1.4, 24, 120)],
+  ],
+  beast: [
+    [
+      { ...strike('grab', 1.05, 0.3, 19, 145), step: 48 },
+      strike('slash', 0.5, 0.3),
+      strike('slash', 0.55, 0.9),
+    ],
+    [{ ...strike('sweep', 1.1, 0.9, 16, 125), step: -28 }],
+  ],
+  boss: [[{ ...strike('thrust', 1.5, 1.3, 18, 650), projectile: 'orb' }]],
+};
+for (const enemy of ENEMIES) enemy.patterns.push(...(extraPatterns[enemy.id] ?? []));
+ENEMIES.find((e) => e.id === 'boss')!.phaseTwo!.push([
+  { ...strike('thrust', 1.4, 0.6, 22, 650), projectile: 'orb' },
+  strike('sweep', 1.15, 1.2, 21, 160),
+]);
 
 export interface Weapon {
   id: string;
@@ -363,6 +446,7 @@ export type RelicEvent =
   | 'enter'
   | 'clear';
 export type RelicEffect =
+  | 'ranged'
   | 'heal'
   | 'focus'
   | 'pressure'
@@ -384,6 +468,46 @@ export interface Relic {
   amount: number;
 }
 export const RELICS: Relic[] = [
+  {
+    id: 'returning',
+    name: 'Returning Hymn',
+    glyph: '↶',
+    rarity: 'Rare',
+    description: 'Every third perfect projectile reflection restores one ranged charge.',
+    event: 'perfect',
+    effect: 'ranged',
+    amount: 1,
+  },
+  {
+    id: 'hunter',
+    name: "Hunter's Prayer",
+    glyph: '↟',
+    rarity: 'Rare',
+    description: 'Ranged projectiles deal 30% more posture pressure to a foe preparing an attack.',
+    event: 'attack',
+    effect: 'ranged',
+    amount: 1.3,
+  },
+  {
+    id: 'quiver',
+    name: 'Still Quiver',
+    glyph: '⋮',
+    rarity: 'Faded',
+    description: 'Stand still for one second to recharge ranged offerings 25% faster.',
+    event: 'enter',
+    effect: 'ranged',
+    amount: 1.25,
+  },
+  {
+    id: 'glass-arrow',
+    name: 'Glass Arrow',
+    glyph: '◇',
+    rarity: 'Sacred',
+    description: 'Ranged abilities deal 40% more vitality damage, but recharge 35% more slowly.',
+    event: 'attack',
+    effect: 'ranged',
+    amount: 1.4,
+  },
   {
     id: 'echo',
     name: 'Echoing Steel',

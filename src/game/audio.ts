@@ -13,6 +13,7 @@ type Cue =
   | 'clear'
   | 'ui'
   | 'tell';
+type ArsenalCue = 'ranged' | 'release' | 'charge' | 'deflect' | 'reflect';
 export class Audio {
   private context?: AudioContext;
   private drone?: GainNode;
@@ -91,10 +92,22 @@ export class Audio {
       this.airFilter.Q.value = biome === 2 ? 2 : 0.5;
     }
   }
-  play(cue: Cue, source = 'sword'): void {
+  play(cue: Cue | ArsenalCue, source = 'sword'): void {
     if (!this.context || !this.settings.master || !this.settings.sfx) return;
     const ctx = this.context;
-    const frequencies: Record<Cue, number[]> = {
+    const frequencies: Record<Cue | ArsenalCue, number[]> = {
+      ranged:
+        source === 'twins'
+          ? [780, 1320]
+          : source === 'great'
+            ? [55, 110, 330]
+            : source === 'spear'
+              ? [140, 420]
+              : [540, 1080],
+      release: source === 'orb' ? [110, 165, 330] : [360, 1400],
+      charge: [660, 880],
+      deflect: source === 'orb' ? [150, 230, 470] : [1780, 2670],
+      reflect: source === 'orb' ? [65, 195, 390, 780] : [2100, 3150, 4200],
       attack: [180, 70],
       hit: [110, 46],
       parry: [1040, 1487, 2173],

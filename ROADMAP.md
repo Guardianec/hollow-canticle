@@ -1,28 +1,29 @@
 # Next releases
 
-## v0.3.0 review and balance
+## v0.4 review and balance
 
-The review branch contains distinct body/stance profiles, articulated rigs, sampled
-combat clips, threat reservations, contextual patterns, behavioral elites, a phase-two
-Saint floor echo, weapon executions, biome impact reactions, and combat laboratory tools.
+Implemented on the accepted v0.3 checkpoint: four Pilgrims, expanded melee vocabulary,
+rechargeable ranged offerings, Archer/Acolyte support, projectile reflection, consumables,
+timed buffs, seeded loot pacing, focused-enemy outlines and cinematic mouse targeting.
 
-Before release sign-off:
+Before full release sign-off:
 
-- Complete several normal full runs with experienced players, across all four weapons.
-- Tune group pressure and the Saint from observed failure/success rates.
-- Review weapon contact and camera occlusion across more room geometries.
-- Profile integrated GPUs and multiple browsers; local samples are not a minimum FPS guarantee.
+- Complete several unassisted multi-floor runs with all four Pilgrims; the recorded
+  browser playtests are short opening attempts and controlled scenario checks.
+- Tune deep mixed encounters and the Saint from observed player failure/success rates.
+- Review mouse-switch thresholds, target stability, ranged telegraphs and camera
+  occlusion in more narrow/chasm layouts and on multiple browser/device combinations.
+- Profile sustained combat on integrated GPUs. Current local FPS samples are not a guarantee.
+- Revisit finite relic-pool pacing for players who fully clear every optional branch;
+  main-route six-floor audits retain acquisitions later, while completionist pools exhaust sooner.
 
-## Further art and combat work
+## Further work
 
-- More authored motion polishing and separate archetype death/recovery choreography;
-  the current clips share semantic foundations.
-- Improve cloth and support-hand reach at extreme poses. No terrain/full-body IK exists.
-- Ranged support enemies and projectile defense decisions.
-- Stronger geometry-aware cinematic camera avoidance in narrow chambers.
-- Artist-authored mesh/material detail to approach the concept reference's fidelity.
-- Controller support and rebindable inputs; evaluate active-run saves separately.
+- More authored motion and archetype death/recovery choreography; clips retain semantic foundations.
+- Stronger geometry-aware cinematic camera avoidance, cloth and extreme support-hand polish.
+- Artist-authored detail approaching the concept reference; terrain/full-body IK remains absent.
+- Optional Chain Hunter, more biome variants and reflected-fragment interactions.
+- Controller support, rebinding and a separately designed active-run resume system.
 
-The game retains 2D authoritative navigation/combat with visual elevation, procedural
-low-poly characters, approximate water reflections, and synthesized audio. There are
-no accounts, telemetry, multiplayer, controller/touch gameplay, or active-run resume.
+The game remains local, static and melee/parry focused. No remote analytics, accounts,
+microtransactions, gacha, energy timers or touch gameplay have been added.

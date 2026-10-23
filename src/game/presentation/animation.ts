@@ -1,6 +1,7 @@
 import type { AttackKind } from '../data';
 import type { Enemy, Player } from '../world';
 import { BODY_PROFILES, type Rotation } from './profiles';
+import { characterFor } from '../characters';
 
 export const JOINTS = [
   'torso',
@@ -209,6 +210,22 @@ export function attackClip(
       p.leftLeg = [-0.25, 0, 0.18];
       p.rightLeg = [0.25, 0, -0.18];
     }
+    if (id === 'great') {
+      p.torso = [(p.torso?.[0] ?? 0) * 1.3, (p.torso?.[1] ?? 0) * 1.15, i === 0 ? -0.12 : 0.15];
+      p.lift = i === 0 ? -0.13 : -0.2;
+      p.leftArm = [...(p.rightArm ?? [-1, 0, 0])];
+      p.leftArm[2] *= -1;
+      p.leftLeg = [-0.35, 0, 0.16];
+      p.rightLeg = [0.3, 0, -0.16];
+      p.head = [i === 0 ? -0.15 : 0.15, 0, 0];
+    }
+    if (id === 'spear' && kind === 'thrust') {
+      const reach = variant % 3 === 1 ? 0.6 : variant % 3 === 2 ? 1.3 : 1;
+      p.advance = (p.advance ?? 0) * reach;
+      p.rightArm = [i === 0 ? -0.5 : -1.4 * reach, i === 0 ? -0.45 : 0.3, 0];
+      p.leftLeg = [i === 0 ? 0.15 : -0.45 * reach, 0, 0];
+      p.torso = [i === 0 ? -0.12 : 0.25 * reach, i === 0 ? -0.5 : 0.2, 0];
+    }
     if (id === 'beast') {
       p.torso = [i === 0 ? -0.25 : 0.4, i === 0 ? -0.5 : 0.8, i === 0 ? 0.2 : -0.2];
       p.head = [-0.35, 0, 0];
@@ -343,7 +360,8 @@ export function animateCharacter(
     const player = entity as Player;
     clip = attackClip(
       weapon,
-      weapon === 'spear' || player.counter ? 'thrust' : weapon === 'great' ? 'smash' : 'slash',
+      player.move?.kind ??
+        (weapon === 'spear' || player.counter ? 'thrust' : weapon === 'great' ? 'smash' : 'slash'),
       variant,
     );
     normalized =
@@ -382,6 +400,35 @@ export function animateCharacter(
       }
     }
   }
+  const player = !enemy ? (entity as Player) : undefined;
+  if (state === 'ranged' && player) {
+    const r = characterFor(weapon).ranged;
+    const t = clamp(age / r.startup),
+      released = age >= r.startup;
+    pose.torso[1] += (released ? 0.5 : -0.5) * Math.sin((Math.min(1, t) * Math.PI) / 2);
+    pose.rightArm =
+      weapon === 'great'
+        ? [released ? -0.3 : -2.5, 0.1, -0.2]
+        : weapon === 'twins'
+          ? [-1.2, released ? 0.6 : -0.4, -0.3]
+          : [released ? -1.5 : -2, released ? 0.3 : -1, -0.35];
+    pose.rightForearm = [released ? -0.1 : -1.3, 0, 0];
+    pose.leftArm = weapon === 'great' ? [...pose.rightArm] : [-0.6, 0.8, 0.5];
+    pose.lift -= weapon === 'great' && released ? 0.2 : 0;
+    pose.advance = released ? 0.15 : -0.12;
+  }
+  if (state === 'item') {
+    pose.leftArm = [-1.9, 0.2, 0.3];
+    pose.leftForearm = [-1.2, 0, 0];
+    pose.head[0] = -0.15;
+  }
+  if (enemy?.strike.projectile && ['tell', 'active'].includes(state)) {
+    const draw = state === 'tell' ? clamp(age / enemy.strike.windup) : 0;
+    pose.rightArm =
+      enemy.def.id === 'archer' ? [-1.35, -0.8 * draw, -0.25] : [-1.5 * draw, 0.5, 0.4];
+    pose.leftArm = [-1.3, 0.15, 0.1];
+    pose.rightForearm = [-1.4 * draw, 0, 0];
+  }
   const recoil = enemy ? Math.max(0, 1 - (time - enemy.recoilAt) / 0.32) : 0;
   pose.torso[0] -= recoil * 0.4;
   pose.rightArm[0] -= recoil * 0.6;
@@ -390,6 +437,16 @@ export function animateCharacter(
     pose.torso[0] = id === 'monk' ? -0.3 : 0.7;
     pose.lift -= 0.24;
     pose.rightArm = [0.3, 0, -0.15];
+    if (id === 'archer') {
+      pose.torso = [0.8, -0.3, 0.18];
+      pose.leftArm = [0.4, 0, 0.6];
+      pose.lift -= 0.1;
+    }
+    if (id === 'hexer') {
+      pose.torso = [-0.45, 0, 0];
+      pose.leftArm = [-0.2, 0.7, 0.8];
+      pose.head[0] = -0.5;
+    }
   }
   if (state === 'hurt') {
     pose.torso[0] -= 0.3 * (1 - clamp(age / 0.22));
@@ -406,7 +463,10 @@ export function animateCharacter(
   return {
     pose,
     clip,
-    name: clip?.name ?? `${id}/${state}/${walking ? 'stride' : 'guard'}`,
+    name:
+      state === 'ranged'
+        ? `${weapon}/ranged`
+        : (clip?.name ?? `${id}/${state}/${walking ? 'stride' : 'guard'}`),
     normalized: clamp(normalized),
   };
 }

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — 2026-10-23 (arsenal review build)
+
+- Built from accepted v0.3 SHA `17dd5e932f48609993fee133185265fe0e701400` on
+  `codex/v0.4.0-arsenal-ranged-loot`; the checkpoint and main branches remain unchanged.
+- Added four Pilgrims with distinct models/stances, four-step chains, counters, heavy,
+  dodge and advancing attacks, plus different cast animations and inherent traits.
+- Added Silver Needle (3/8s), Moth Knives (5/5s), Pilgrim’s Javelin (2/11s) and Last Toll
+  (2/12.5s), sequential recharge, charge HUD and replenishment feedback.
+- Added Archer/Acolyte support compositions, LOS/ally lanes, retreat/panic behavior,
+  bounded predictive aim, additional melee patterns, and a new attack in each Saint phase.
+- Added swept projectiles, wall collision, standard dissipation, perfect reflection,
+  shooter recoil/guard breaks, distinct pooled metallic/magic effects and audio.
+- Added ten bounded consumables, committed use, eight refreshable timed effects,
+  physical pickups, inventory cycling, duration HUD and item/recharge synergies.
+- Replaced guaranteed ordinary relics with seeded weighted loot, capped pity,
+  restricted run pools, rarity weights and four ranged-system relics.
+- Added model-based selection with a clear outline and qualitative discipline details.
+  Per the follow-up correction, gameplay outlines the focused enemy. Cinematic combat
+  hides the cursor, mouse motion/Tab switches focus, and exploration restores free aiming.
+- Preserved v1 progress with a v2 schema migration and added ten local run summaries.
+  Expanded the laboratory and automated projectile, item, loot, focus and journey checks.
+- Retained the accepted dungeon, animation framework, group pressure, boss phase two,
+  atmosphere and cameras. Full multi-floor human balance sign-off remains outstanding.
+
 ## 0.3.0 — 2026-10-23 (review build)
 
 - Added archetype body/stance profiles, articulated elbows and knees, support grips,

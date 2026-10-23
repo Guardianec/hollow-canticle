@@ -21,11 +21,11 @@ export class ThreatDirector {
     for (let i = this.reservations.length - 1; i >= 0; i--)
       if (this.reservations[i].until < time) this.reservations.splice(i, 1);
   }
-  reserve(enemy: number, time: number, strike: Strike, depth: number): boolean {
+  reserve(enemy: number, time: number, strike: Strike, depth: number, travel = 0): boolean {
     this.prune(time);
     if (this.reservations.some((r) => r.enemy === enemy)) return false;
     const special = ['smash', 'sweep', 'grab'].includes(strike.kind);
-    const at = time + strike.windup;
+    const at = time + strike.windup + travel;
     // Even mixed dodge/parry sequences leave a full evade cooldown between threats.
     if (
       this.reservations.some(

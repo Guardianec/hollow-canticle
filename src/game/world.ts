@@ -2,7 +2,6 @@ import {
   BALANCE,
   BIOMES,
   ENEMIES,
-  RELICS,
   WEAPONS,
   type EnemyDef,
   type Relic,
@@ -20,14 +19,29 @@ import {
 } from './dungeon';
 import { finisherStyle, InputBuffer, posturePressure, resolveDefense, type Action } from './combat';
 import { normalizeSeed, Random } from './random';
-import { persist, type Save } from './save';
+import { persist, recordRun, type Save } from './save';
 import { Audio } from './audio';
 import { canStand, pathBetween } from './geometry';
 import { ThreatDirector } from './threat';
+import { Arsenal } from './arsenal';
+import { characterFor, meleeMove, type MeleeMove } from './characters';
+import { Projectiles } from './projectiles';
+import { Buffs } from './buffs';
+import { Inventory, ITEMS, type ItemDef } from './items';
+import { LootDirector, type LootKind } from './loot';
 
 export type Mode = 'menu' | 'playing' | 'paused' | 'reward' | 'dead' | 'trained';
 export type PlayerState =
-  'idle' | 'attack' | 'parry' | 'dodge' | 'hurt' | 'stagger' | 'finisher' | 'dead';
+  | 'idle'
+  | 'attack'
+  | 'ranged'
+  | 'item'
+  | 'parry'
+  | 'dodge'
+  | 'hurt'
+  | 'stagger'
+  | 'finisher'
+  | 'dead';
 export interface Player {
   x: number;
   y: number;
@@ -52,6 +66,11 @@ export interface Player {
   emptyParries: number;
   parryLanded: boolean;
   finisherTarget: string;
+  move: MeleeMove;
+  attackType: string;
+  comboUntil: number;
+  rangedCharges: number;
+  recharge: number;
 }
 export interface Enemy {
   path?: { x: number; y: number }[];
@@ -79,6 +98,7 @@ export interface Enemy {
   recoilAt: number;
   counterQueued: boolean;
   chainExtended: boolean;
+  recentPatterns: number[];
 }
 export interface Particle {
   ground?: boolean;
@@ -102,6 +122,7 @@ export interface Effect {
   scale: number;
   weapon?: string;
   attackKind?: Strike['kind'];
+  projectileKind?: 'arrow' | 'orb';
 }
 export interface Toast {
   text: string;
@@ -122,6 +143,16 @@ export interface RunStats {
   dodges: number;
   attacks: number;
   bosses: number;
+  rangedSpent: number;
+  rangedHits: number;
+  projectileParries: number;
+  reflections: number;
+  itemsUsed: number;
+  healing: number;
+  buffUptime: number;
+  rangedEnemies: number;
+  relicsByFloor: Record<number, number>;
+  loot: Record<LootKind, number>;
 }
 export interface WorldEvent {
   type: 'reward' | 'death' | 'trained' | 'floor';
@@ -151,6 +182,7 @@ export class World {
   buffer = new InputBuffer();
   movement = { x: 0, y: 0 };
   mouseAim?: { x: number; y: number };
+  focusedEnemy?: number;
   particles: Particle[] = [];
   effects: Effect[] = [];
   toast?: Toast;
@@ -176,6 +208,22 @@ export class World {
   private rewardRng = new Random('rewards');
   private settled = false;
   readonly threats = new ThreatDirector();
+  readonly projectiles = new Projectiles();
+  readonly arsenal = new Arsenal(this, {
+    move: (body, dx, dy) => this.move(body, dx, dy),
+    hurt: (amount, reason) => this.hurt(amount, reason),
+    beginTell: (enemy) => this.beginTell(enemy),
+    breakEnemy: (enemy) => this.breakEnemy(enemy),
+  });
+  readonly buffs = new Buffs();
+  readonly inventory = new Inventory();
+  loot = new LootDirector(this.seed);
+  pickups: { id: number; room: number; depth: number; x: number; y: number; item: string }[] = [];
+  selection?: string;
+  private pendingItem?: ItemDef;
+  get character() {
+    return characterFor(this.weapon.id);
+  }
   lab = {
     pattern: -1,
     camera: 'auto',
@@ -186,6 +234,12 @@ export class World {
     normalized: 0,
     hitWindow: '',
     rootMotion: 0,
+    projectileSpeed: 1,
+    projectileType: 'auto',
+    infiniteCharges: false,
+    rechargeRate: 1,
+    forceLoot: 'auto',
+    hitboxes: false,
   };
   private iceDrift = { x: 0, y: 0 };
   echoes: { enemy: number; x: number; y: number; at: number; radius: number }[] = [];
@@ -203,7 +257,24 @@ export class World {
     return this.enemies.filter((e) => e.state !== 'dead');
   }
   get target(): Enemy | undefined {
-    return this.alive.sort((a, b) => distance(a, this.player) - distance(b, this.player))[0];
+    const alive = this.alive;
+    return (
+      alive.find((e) => e.id === this.focusedEnemy) ??
+      alive.sort((a, b) => distance(a, this.player) - distance(b, this.player))[0]
+    );
+  }
+  focusEnemy(id: number | undefined): void {
+    this.focusedEnemy = this.alive.some((e) => e.id === id) ? id : undefined;
+    if (this.focusedEnemy !== undefined) this.mouseAim = undefined;
+  }
+  cycleFocus(direction: number): void {
+    const enemies = this.alive.sort((a, b) => a.id - b.id);
+    if (!enemies.length) {
+      this.focusedEnemy = undefined;
+      return;
+    }
+    const index = enemies.findIndex((e) => e === this.target);
+    this.focusEnemy(enemies[(index + direction + enemies.length) % enemies.length].id);
   }
   get combat(): boolean {
     return this.alive.length > 0;
@@ -215,6 +286,16 @@ export class World {
       (e) => e.state === 'broken' && distance(e, p) < BALANCE.finisherRange,
     );
     if (broken) return { text: 'Deliver the final toll', sub: 'E  /  J', x: broken.x, y: broken.y };
+    const pickup = this.pickups.find(
+      (i) => i.room === this.roomId && i.depth === this.floor.depth && distance(i, p) < 75,
+    );
+    if (pickup)
+      return {
+        text: `Take ${ITEMS.find((i) => i.id === pickup.item)!.name}`,
+        sub: 'E  TAKE',
+        x: pickup.x,
+        y: pickup.y,
+      };
     if (this.combat) return;
     if (
       !this.room.claimed &&
@@ -284,6 +365,11 @@ export class World {
       emptyParries: 0,
       parryLanded: true,
       finisherTarget: '',
+      move: this.character.chain[0],
+      attackType: 'chain',
+      comboUntil: -1,
+      rangedCharges: this.character.ranged.charges,
+      recharge: 0,
     };
     this.stats = {
       kills: 0,
@@ -298,6 +384,16 @@ export class World {
       dodges: 0,
       attacks: 0,
       bosses: 0,
+      rangedSpent: 0,
+      rangedHits: 0,
+      projectileParries: 0,
+      reflections: 0,
+      itemsUsed: 0,
+      healing: 0,
+      buffUptime: 0,
+      rangedEnemies: 0,
+      relicsByFloor: {},
+      loot: { nothing: 0, embers: 0, item: 0, healing: 0, blessing: 0, relic: 0 },
     };
   }
   start(seed: string, weaponId: string, training = false): void {
@@ -316,7 +412,13 @@ export class World {
     this.events = [];
     this.toast = undefined;
     this.lastPerfect = false;
-    this.rewardRng = new Random(`${this.seed}:loot`);
+    this.rewardRng = new Random(`${this.seed}:attacks`);
+    this.loot = new LootDirector(this.seed);
+    this.buffs.clear();
+    this.inventory.clear();
+    this.inventory.add('crimson');
+    this.pickups = [];
+    this.pendingItem = undefined;
     this.resetPlayer();
     this.buffer.clear();
     this.mouseAim = undefined;
@@ -340,10 +442,13 @@ export class World {
   }
 
   enterRoom(id: number, previous?: Room): void {
+    this.focusedEnemy = undefined;
     this.roomId = id;
     this.room.visited = true;
     this.roomRevision++;
     this.effects = [];
+    this.projectiles.clear();
+    this.pendingItem = undefined;
     this.particles = [];
     this.threats.clear();
     this.echoes = [];
@@ -369,6 +474,9 @@ export class World {
     this.enemies = this.room.cleared
       ? []
       : this.room.enemies.map((id, index) => this.spawnEnemy(id, index));
+    this.stats.rangedEnemies += this.enemies.filter((e) =>
+      ['archer', 'hexer'].includes(e.def.id),
+    ).length;
     this.emit('enter');
     this.audio.setBiome(this.floor.biome);
     this.audio.ambience(this.combat, this.mode !== 'playing');
@@ -387,11 +495,26 @@ export class World {
     const def = ENEMIES.find((e) => e.id === id) || ENEMIES[0];
     const elite = this.room.kind === 'elite';
     const hp = def.hp * (elite ? 1.2 : 1);
+    const desired = {
+      x: ['archer', 'hexer'].includes(id) ? 800 : index === 0 ? 735 : 650,
+      y: ['archer', 'hexer'].includes(id) ? 320 : index === 0 ? 380 : 470,
+    };
+    const candidates = [];
+    for (let y = 120; y <= 640; y += 20)
+      for (let x = 120; x <= 1000; x += 20)
+        if (
+          canStand(this.room, x, y, 24) &&
+          this.obstacles.every((o) => Math.hypot(x - o.x, y - o.y) > o.radius + 28)
+        )
+          candidates.push({ x, y });
+    const position = candidates.sort((a, b) => distance(a, desired) - distance(b, desired))[0] ?? {
+      x: 560,
+      y: 380,
+    };
     return {
       id: index,
       def,
-      x: index === 0 ? 735 : 650,
-      y: index === 0 ? 380 : 470,
+      ...position,
       facing: Math.PI,
       hp,
       maxHp: hp,
@@ -411,6 +534,7 @@ export class World {
       recoilAt: -99,
       counterQueued: false,
       chainExtended: false,
+      recentPatterns: [],
     };
   }
 
@@ -507,6 +631,7 @@ export class World {
     }
     this.threats.prune(this.time);
     for (const enemy of this.enemies) this.updateEnemy(enemy, dt);
+    this.arsenal.update(dt);
     this.separateEnemies();
     this.updateHazards();
     for (const echo of this.echoes) {
@@ -524,17 +649,50 @@ export class World {
     if (this.clearAt && this.time > this.clearAt) {
       this.clearAt = 0;
       if (this.training) {
-        this.enemies = [this.spawnEnemy('warden', 0)];
+        this.enemies = [
+          this.spawnEnemy(this.trainingDone.has('projectile-training') ? 'archer' : 'warden', 0),
+        ];
         this.room.cleared = false;
-      } else this.openReward();
+      } else this.resolveLoot();
     }
     this.player.focus = Math.max(0, Math.min(100, this.player.focus));
     this.player.hp = Math.max(0, Math.min(BALANCE.playerHp, this.player.hp));
     if (this.training) {
       this.player.hp = Math.max(40, this.player.hp);
-      if (this.trainingDone.size >= 6) {
+      if (
+        ['move', 'attack', 'parry', 'perfect', 'dodge', 'finisher'].every((id) =>
+          this.trainingDone.has(id),
+        ) &&
+        !this.trainingDone.has('projectile-training')
+      ) {
+        this.trainingDone.add('projectile-training');
+        this.enemies = [this.spawnEnemy('archer', 0)];
+        this.room.cleared = false;
+        this.clearAt = 0;
+        this.announce(
+          'DEFLECT THE ARROW',
+          'K to deflect. Meet the final instant to return it.',
+          '#dce6ce',
+          5,
+        );
+      }
+      if (
+        [
+          'move',
+          'attack',
+          'parry',
+          'perfect',
+          'dodge',
+          'finisher',
+          'ranged',
+          'item',
+          'projectile',
+          'reflection',
+        ].every((id) => this.trainingDone.has(id))
+      ) {
         this.mode = 'trained';
         this.save.tutorial = true;
+        this.save.arsenalTutorial = true;
         persist(this.save);
         this.events.push({ type: 'trained' });
       }
@@ -544,13 +702,40 @@ export class World {
   private updatePlayer(dt: number): void {
     const p = this.player;
     const age = this.time - p.stateAt;
-    if (p.state === 'attack' && !p.attackHit && age >= this.weapon.startup) {
+    this.buffs.expire(this.time);
+    if (this.buffs.active.length) this.stats.buffUptime += dt;
+    this.heal(this.buffs.healing * dt);
+    this.rechargeRanged(
+      (dt *
+        this.buffs.modifier('recharge') *
+        (this.debug ? this.lab.rechargeRate : 1) *
+        (this.hasRelic('quiver') && this.time - this.lastMoved > 1 ? 1.25 : 1)) /
+        (this.hasRelic('glass-arrow') ? 1.35 : 1),
+    );
+    if (p.state === 'attack' && !p.attackHit && age >= p.attackStartup) {
       p.attackHit = true;
       this.attack();
     }
+    if (p.state === 'ranged' && !p.attackHit && age >= this.character.ranged.startup) {
+      p.attackHit = true;
+      this.arsenal.firePlayer();
+    }
+    if (p.state === 'item' && this.pendingItem && age >= this.pendingItem.useTime) {
+      const item = this.pendingItem;
+      this.pendingItem = undefined;
+      if (item.heal) this.heal(item.heal);
+      if (item.buff) this.buffs.add(item.buff, this.time);
+      if (item.charges)
+        p.rangedCharges = Math.min(this.character.ranged.charges, p.rangedCharges + item.charges);
+      this.stats.itemsUsed++;
+      this.trainingDone.add('item');
+      this.audio.play('clear');
+    }
     const durations: Record<PlayerState, number> = {
       idle: Infinity,
-      attack: this.weapon.startup + this.weapon.recovery,
+      attack: p.attackStartup + p.attackRecovery,
+      ranged: this.character.ranged.startup + this.character.ranged.recovery,
+      item: this.pendingItem?.useTime ?? 0,
       parry: this.weapon.parry + 0.23,
       dodge: BALANCE.dodgeTime,
       hurt: 0.22,
@@ -571,12 +756,19 @@ export class World {
       if (a === 'dodge')
         return (
           this.time >= p.dodgeReady &&
-          (p.state === 'idle' || p.state === 'parry' || (p.state === 'attack' && p.attackHit))
+          (p.state === 'idle' ||
+            p.state === 'parry' ||
+            (['attack', 'ranged'].includes(p.state) && p.attackHit))
         );
       if (a === 'parry')
         return (
           p.state === 'idle' ||
-          (p.state === 'attack' && age >= this.weapon.startup + this.weapon.recovery - 0.1)
+          (['attack', 'ranged'].includes(p.state) &&
+            p.attackHit &&
+            age >=
+              (p.state === 'attack'
+                ? p.attackStartup + p.attackRecovery * 0.45
+                : this.character.ranged.startup))
         );
       return p.state === 'idle';
     });
@@ -589,7 +781,10 @@ export class World {
         x /= len;
         y /= len;
         this.lastMoved = this.time;
-        let speed = BALANCE.speed * (p.state === 'attack' ? 0.34 : p.state === 'parry' ? 0.55 : 1);
+        let speed =
+          BALANCE.speed *
+          this.character.speed *
+          (p.state === 'attack' ? 0.34 : p.state === 'parry' ? 0.55 : 1);
         if ((this.floor.biome === 1 || this.floor.hybrid === 1) && this.inZone(p, 'water'))
           speed *= 0.65;
         this.move(p, x * speed * dt, y * speed * dt);
@@ -598,6 +793,8 @@ export class World {
       }
       if (this.mouseAim && p.state === 'idle')
         p.facing = Math.atan2(this.mouseAim.y - p.y, this.mouseAim.x - p.x);
+      if (this.focusedEnemy !== undefined && this.target && p.state === 'idle')
+        p.facing = Math.atan2(this.target.y - p.y, this.target.x - p.x);
     }
     const onIce = (this.floor.biome === 3 || this.floor.hybrid === 3) && this.inZone(p, 'ice');
     const slide = 1 - Math.exp(-dt * (onIce ? 3 : 12));
@@ -613,6 +810,31 @@ export class World {
 
   private perform(action: Action): void {
     const p = this.player;
+    if (action === 'ranged') {
+      if (p.rangedCharges <= 0 && !(this.debug && this.lab.infiniteCharges)) return;
+      if (!(this.debug && this.lab.infiniteCharges)) p.rangedCharges--;
+      p.state = 'ranged';
+      p.stateAt = this.time;
+      p.attackHit = false;
+      const aim = this.mouseAim ?? this.target;
+      if (aim) p.facing = Math.atan2(aim.y - p.y, aim.x - p.x);
+      this.stats.rangedSpent++;
+      this.trainingDone.add('ranged');
+      return;
+    }
+    if (action === 'item') {
+      const item = this.inventory.item;
+      if (
+        !item ||
+        (item.heal && p.hp >= 100) ||
+        (item.charges && p.rangedCharges >= this.character.ranged.charges)
+      )
+        return;
+      this.pendingItem = this.inventory.take();
+      p.state = 'item';
+      p.stateAt = this.time;
+      return;
+    }
     if (action === 'interact') {
       this.interact();
       return;
@@ -645,13 +867,26 @@ export class World {
       return;
     }
     const previousAge = this.time - p.stateAt;
-    p.state = action;
+    p.state = action === 'heavy' ? 'attack' : action;
     p.stateAt = this.time;
-    if (action === 'attack') {
-      p.combo = previousAge < 1 ? (p.combo + 1) % 3 : 0;
+    if (action === 'attack' || action === 'heavy') {
+      p.combo = this.time < p.comboUntil ? (p.combo + 1) % this.character.chain.length : 0;
       p.counter = this.time < p.counterUntil;
-      p.attackStartup = this.weapon.startup;
-      p.attackRecovery = this.weapon.recovery;
+      p.attackType = p.counter
+        ? 'counter'
+        : action === 'heavy'
+          ? 'heavy'
+          : this.time - p.dodgeAt < 0.65
+            ? 'dodge'
+            : this.time >= p.comboUntil &&
+                previousAge > 0.5 &&
+                Math.hypot(this.movement.x, this.movement.y) > 0.8
+              ? 'running'
+              : 'chain';
+      p.move = meleeMove(this.character, p.combo, p.attackType);
+      p.attackStartup = (this.weapon.startup * p.move.startup) / this.buffs.modifier('speed');
+      p.attackRecovery = (this.weapon.recovery * p.move.recovery) / this.buffs.modifier('speed');
+      p.comboUntil = this.time + p.attackStartup + p.attackRecovery + 0.65;
       p.attackHit = false;
       const target = this.chooseTarget();
       if (target) p.facing = Math.atan2(target.y - p.y, target.x - p.x);
@@ -678,6 +913,7 @@ export class World {
 
   private chooseTarget(): Enemy | undefined {
     const p = this.player;
+    if (this.focusedEnemy !== undefined) return this.target;
     return this.alive
       .filter((e) => distance(p, e) < this.weapon.reach + 80)
       .sort((a, b) => {
@@ -690,7 +926,7 @@ export class World {
   }
   private attack(): void {
     const p = this.player;
-    const counter = this.time < p.counterUntil;
+    const counter = p.counter;
     this.effect(
       p.x,
       p.y,
@@ -700,28 +936,46 @@ export class World {
       this.weapon.reach / 90,
       p.facing,
     );
-    const step = this.weapon.id === 'spear' ? 16 : 10;
+    const step = p.move.step;
     this.move(p, Math.cos(p.facing) * step, Math.sin(p.facing) * step);
     Object.assign(this.effects[this.effects.length - 1], {
       weapon: this.weapon.id,
-      attackKind:
-        this.weapon.id === 'spear' ? 'thrust' : this.weapon.id === 'great' ? 'smash' : 'slash',
+      attackKind: p.move.kind,
     });
     for (const enemy of this.alive) {
       if (
         enemy.state === 'broken' ||
-        distance(p, enemy) > this.weapon.reach + 22 ||
+        distance(p, enemy) > this.weapon.reach * p.move.reach + 22 ||
         Math.abs(angleDifference(Math.atan2(enemy.y - p.y, enemy.x - p.x), p.facing)) > 1.15
       )
         continue;
       const block = enemy.def.reaction === 'block' && enemy.state === 'idle' && !counter;
-      enemy.hp -= (this.weapon.damage + this.hunger) * (block ? 0.18 : counter ? 1.4 : 1);
+      enemy.hp -=
+        (this.weapon.damage + this.hunger) *
+        p.move.damage *
+        this.buffs.modifier('damage') *
+        (block ? 0.18 : counter ? 1.4 : 1);
       this.pressure(
         enemy,
         posturePressure(this.weapon.pressure, p.focus, counter, this.weapon.id === 'spear') *
+          p.move.pressure *
+          this.buffs.modifier('pressure') *
+          (counter ? this.buffs.modifier('counter') : 1) *
           (this.room.kind === 'elite' && this.room.elite === 'Armored' && !counter ? 0.65 : 1),
       );
       this.impact(enemy.x, enemy.y - 16, block ? '#e8bc79' : '#c5d6d7', 11, 'ring', 0.45);
+      this.hitStop = Math.max(
+        this.hitStop,
+        this.save.settings.reducedMotion
+          ? 0.005
+          : this.weapon.id === 'great'
+            ? 0.045
+            : this.weapon.id === 'spear'
+              ? 0.022
+              : this.weapon.id === 'sword'
+                ? 0.016
+                : 0.008,
+      );
       this.audio.play(block ? 'parry' : 'hit');
       if (block) {
         enemy.blocks++;
@@ -737,7 +991,10 @@ export class World {
         enemy.readyAt = this.time + (enemy.def.reaction === 'counter' ? 0.12 : 0.4);
         enemy.counterQueued = enemy.def.reaction === 'counter';
       }
-      if (this.weapon.id === 'twins') p.focus += 3;
+      if (this.weapon.id === 'twins') {
+        p.focus += 3;
+        if (p.combo === 3) this.rechargeRanged(0.8);
+      }
       if (counter) {
         this.emit('counter', enemy);
         p.counterUntil = 0;
@@ -745,6 +1002,87 @@ export class World {
       this.emit('attack', enemy);
       if (enemy.hp <= 0) this.breakEnemy(enemy);
     }
+  }
+
+  hasRelic(id: string): boolean {
+    return this.relics.some((r) => r.id === id);
+  }
+  dropItem(item: string): void {
+    if (!ITEMS.some((i) => i.id === item)) return;
+    const p = this.player;
+    const point =
+      [
+        [52, 0],
+        [-52, 0],
+        [0, 52],
+        [0, -52],
+      ]
+        .map(([x, y]) => ({ x: p.x + x, y: p.y + y }))
+        .find(
+          (v) =>
+            canStand(this.room, v.x, v.y, 12) &&
+            this.obstacles.every((o) => distance(v, o) > o.radius + 18),
+        ) ?? p;
+    this.pickups.push({
+      id: this.pickups.length,
+      room: this.roomId,
+      depth: this.floor.depth,
+      x: point.x,
+      y: point.y,
+      item,
+    });
+  }
+
+  private heal(amount: number): void {
+    const gained = Math.max(0, Math.min(amount, 100 - this.player.hp));
+    this.player.hp += gained;
+    this.stats.healing += gained;
+  }
+
+  rechargeRanged(seconds: number): void {
+    const p = this.player,
+      ranged = this.character.ranged;
+    if (p.rangedCharges >= ranged.charges) {
+      p.recharge = 0;
+      return;
+    }
+    p.recharge += seconds;
+    while (p.recharge + 1e-8 >= ranged.recharge && p.rangedCharges < ranged.charges) {
+      p.recharge -= ranged.recharge;
+      p.rangedCharges++;
+      this.audio.play('charge', this.weapon.id);
+    }
+    if (p.rangedCharges >= ranged.charges) p.recharge = 0;
+  }
+
+  resolveLoot(forced?: LootKind): void {
+    const loot = this.loot.roll(
+      this.room.kind,
+      forced ??
+        (this.debug && this.lab.forceLoot !== 'auto'
+          ? (this.lab.forceLoot as LootKind)
+          : undefined),
+    );
+    this.stats.loot[loot.kind]++;
+    if (loot.kind === 'relic') this.openReward();
+    if (loot.kind === 'embers') {
+      if (!this.training && !this.laboratory) {
+        this.save.embers += loot.amount!;
+        persist(this.save);
+      }
+      this.announce('EMBERS REMAIN', `${loot.amount} embers kept in the chronicle.`, '#d3ba8e', 2);
+    }
+    if (loot.kind === 'healing') this.heal(loot.amount!);
+    if (loot.kind === 'blessing') {
+      this.buffs.add('iron', this.time, 'chamber');
+      this.announce(
+        'A FLEETING BENEDICTION',
+        'Iron Incense · 15 seconds of guard resistance.',
+        '#bad5cd',
+        2,
+      );
+    }
+    if (loot.kind === 'item') this.dropItem(loot.item!);
   }
 
   private updateEnemy(e: Enemy, dt: number): void {
@@ -769,7 +1107,16 @@ export class World {
       return;
     }
     if (e.state === 'tell') {
-      if (age < e.strike.windup - 0.2) e.facing = Math.atan2(p.y - e.y, p.x - e.x);
+      if (age < e.strike.windup - 0.2) {
+        const lead =
+          e.strike.projectile && this.floor.depth >= 4
+            ? Math.min(0.2, this.floor.depth * 0.018)
+            : 0;
+        e.facing = Math.atan2(
+          p.y + this.movement.y * BALANCE.speed * lead - e.y,
+          p.x + this.movement.x * BALANCE.speed * lead - e.x,
+        );
+      }
       if (e.strike.kind === 'feint' && age >= e.strike.windup) {
         e.state = 'recover';
         e.stateAt = this.time;
@@ -780,6 +1127,10 @@ export class World {
       if (age >= e.strike.windup) {
         e.state = 'active';
         e.stateAt = this.time;
+        if (e.strike.projectile) {
+          this.arsenal.fireEnemy(e);
+          return;
+        }
         if (dist < e.strike.reach + 60)
           this.move(
             e,
@@ -840,6 +1191,11 @@ export class World {
     if (this.time - e.lastPressure > (dist < 180 ? 1.8 : 1.1))
       e.posture = Math.max(0, e.posture - dt * (dist < 180 ? 8 : 16) * (0.35 + e.hp / e.maxHp));
     e.facing = Math.atan2(p.y - e.y, p.x - e.x);
+    if (['archer', 'hexer'].includes(e.def.id)) {
+      this.arsenal.updateEnemy(e, dt);
+      return;
+    }
+    const primary = this.target === e;
     const preferred =
       e.def.id === 'spear'
         ? 140
@@ -852,8 +1208,9 @@ export class World {
               : 78;
     const speed =
       e.def.speed * (this.room.modifier === 'Resonant' ? 1.12 : 1) * (e.phase === 2 ? 1.15 : 1);
-    if (dist > preferred) {
-      const orbit = this.threats.reservations.some((r) => r.enemy !== e.id && r.at > this.time);
+    if (dist > preferred + (!primary && this.presentation.duel > 0.4 ? 95 : 0)) {
+      const orbit =
+        !primary && this.threats.reservations.some((r) => r.enemy !== e.id && r.at > this.time);
       let angle = e.facing + (orbit ? (e.id % 2 ? -0.7 : 0.7) : 0);
       const blocked =
         !canStand(this.room, e.x + Math.cos(angle) * 32, e.y + Math.sin(angle) * 32) ||
@@ -871,13 +1228,23 @@ export class World {
         if (e.path?.[0]) angle = Math.atan2(e.path[0].y - e.y, e.path[0].x - e.x);
       }
       this.move(e, Math.cos(angle) * speed * dt, Math.sin(angle) * speed * dt);
-    } else if (this.alive.length > 1 && !this.training) {
+    } else if (!primary && this.alive.length > 1 && !this.training) {
       const angle = e.facing + (e.id % 2 ? -Math.PI / 2 : Math.PI / 2);
       this.move(e, Math.cos(angle) * speed * dt * 0.3, Math.sin(angle) * speed * dt * 0.3);
     }
     if (dist < e.strike.reach + 25 && this.time >= e.readyAt && p.state !== 'finisher') {
       const patterns = e.phase === 2 && e.def.phaseTwo ? e.def.phaseTwo : e.def.patterns;
       if (e.index === 0 && this.lab.pattern < 0) {
+        if (e.variant > 0)
+          e.pattern = this.rewardRng.weighted(
+            patterns.map((_, i) => i),
+            (i) =>
+              e.recentPatterns.includes(i)
+                ? 0.2
+                : dist > 125 && patterns[i][0].kind === 'thrust'
+                  ? 2
+                  : 1,
+          );
         if (e.counterQueued && e.def.id === 'duelist') e.pattern = 3;
         else if (p.emptyParries >= 2 && ['assassin', 'duelist'].includes(e.def.id)) e.pattern = 2;
         else if (e.def.id === 'spear' && dist > 120) e.pattern = 1;
@@ -914,8 +1281,18 @@ export class World {
         )
       )
         return;
-      if (!this.threats.reserve(e.id, this.time, strike, this.floor.depth)) return;
+      if (
+        !this.threats.reserve(
+          e.id,
+          this.time,
+          strike,
+          this.floor.depth,
+          strike.projectile ? this.arsenal.travel(strike, dist) : 0,
+        )
+      )
+        return;
       e.strike = strike;
+      if (e.index === 0) e.recentPatterns = [...e.recentPatterns.slice(-1), e.pattern];
       e.variant++;
       e.counterQueued = false;
       e.index++;
@@ -993,6 +1370,7 @@ export class World {
       p.counterUntil = this.time + 0.8;
       p.state = 'idle';
       if (perfect) {
+        if (this.weapon.id === 'sword') this.rechargeRanged(1);
         this.stats.perfects++;
         this.stats.streak++;
         this.roomPerfects++;
@@ -1042,12 +1420,18 @@ export class World {
   private hurt(amount: number, reason: string, enemy?: Enemy): void {
     const p = this.player;
     if (this.invincible || this.time < p.immunity) return;
-    const damage = Math.max(0, amount - this.ward);
+    if (this.buffs.consume('ward')) {
+      this.effect(p.x, p.y, 'ring', '#d5efcd', 0.4, 1.4);
+      p.immunity = this.time + 0.3;
+      return;
+    }
+    const damage = Math.max(0, amount * this.buffs.modifier('incoming') - this.ward);
     this.ward = 0;
     p.hp -= damage;
     this.stats.damage += damage;
     this.roomDamage += damage;
-    p.posture += amount * 1.7;
+    p.posture += amount * 1.7 * this.buffs.modifier('incomingPosture');
+    this.pendingItem = undefined;
     p.focus = this.relics.some((r) => r.id === 'glass') ? 0 : Math.max(0, p.focus - 28);
     this.hunger = 0;
     this.stats.streak = 0;
@@ -1092,6 +1476,7 @@ export class World {
       2.5,
     );
     this.emit('break', e);
+    if (this.weapon.id === 'great') this.rechargeRanged(2);
   }
   private finish(e: Enemy): void {
     const p = this.player;
@@ -1236,6 +1621,27 @@ export class World {
       this.finish(broken);
       return;
     }
+    const pickup = this.pickups.find(
+      (i) => i.room === this.roomId && i.depth === this.floor.depth && distance(i, p) < 75,
+    );
+    if (pickup) {
+      if (this.inventory.add(pickup.item)) {
+        this.pickups = this.pickups.filter((i) => i !== pickup);
+        this.announce(
+          ITEMS.find((i) => i.id === pickup.item)!.name.toUpperCase(),
+          'Consumable · Q to use · 1 / 2 to cycle.',
+          '#c5dcca',
+          2,
+        );
+      } else
+        this.announce(
+          'SATCHEL FULL',
+          'Carry five offerings, at most two of each. Use one before taking this.',
+          '#d0bd9c',
+          2,
+        );
+      return;
+    }
     if (this.combat) return;
     if (!this.room.claimed && distance(p, { x: 560, y: 365 }) < 110) {
       if (this.room.kind === 'exit') {
@@ -1268,7 +1674,7 @@ export class World {
       }
       if (['treasure', 'shrine', 'secret'].includes(this.room.kind)) {
         this.room.claimed = true;
-        this.openReward();
+        this.resolveLoot();
         return;
       }
     }
@@ -1303,17 +1709,15 @@ export class World {
     this.clearAt = this.time + 1.8;
   }
   openReward(): void {
-    const pool = RELICS.filter((r) => !this.relics.some((owned) => owned.id === r.id));
-    this.rewards = [];
-    for (let i = 0; i < 3 && pool.length; i++) {
-      const selected = this.rewardRng.weighted(pool, (r) =>
-        r.rarity === 'Faded' ? 3 : r.rarity === 'Rare' ? 2 : 1,
-      );
-      this.rewards.push(selected);
-      pool.splice(pool.indexOf(selected), 1);
-    }
+    this.rewards = this.loot.choices(this.relics, this.room.kind);
     if (!this.rewards.length) {
-      this.player.hp = Math.min(100, this.player.hp + 20);
+      this.dropItem('silver');
+      this.announce(
+        'SILVER IN THE SILENCE',
+        'This oath holds no new relic. A rare offering remains.',
+        '#d4e6dd',
+        2,
+      );
       return;
     }
     this.mode = 'reward';
@@ -1325,6 +1729,8 @@ export class World {
     const relic = this.rewards.find((r) => r.id === id);
     if (!relic || this.mode !== 'reward') return;
     this.relics.push(relic);
+    this.stats.relicsByFloor[this.floor.depth] =
+      (this.stats.relicsByFloor[this.floor.depth] ?? 0) + 1;
     if (!this.laboratory) {
       if (!this.save.relics.includes(id)) this.save.relics.push(id);
       persist(this.save);
@@ -1337,6 +1743,10 @@ export class World {
   }
 
   private die(): void {
+    this.buffs.clear();
+    this.inventory.clear();
+    this.pendingItem = undefined;
+    this.projectiles.clear();
     this.mode = 'dead';
     this.player.state = 'dead';
     this.audio.play('death');
@@ -1347,6 +1757,7 @@ export class World {
   settleRun(): void {
     if (this.settled || this.training || this.laboratory) return;
     this.settled = true;
+    recordRun(this.seed, this.character.id, this.floor.depth, this.stats);
     this.save.runs++;
     this.save.kills += this.stats.kills;
     this.save.embers += this.stats.kills + this.stats.rooms * 2 + this.stats.bosses * 10;

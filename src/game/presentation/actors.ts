@@ -4,6 +4,7 @@ import { Materials } from './materials';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BODY_PROFILES } from './profiles';
 import { animateCharacter, JOINTS } from './animation';
+import { characterFor } from '../characters';
 
 export class Actor {
   readonly root = new T.Group();
@@ -35,6 +36,8 @@ export class Actor {
   private weaponId = '';
   private ownedGeometry = new Set<T.BufferGeometry>();
   private steel: T.MeshStandardMaterial;
+  private outline?: T.ShaderMaterial;
+  private outlineStrength = -1;
   constructor(
     private materials: Materials,
     readonly id: string,
@@ -77,7 +80,13 @@ export class Actor {
     });
     this.cloak = new T.MeshStandardMaterial({
       color: player
-        ? '#34434c'
+        ? id === 'player-twins'
+          ? '#49364f'
+          : id === 'player-spear'
+            ? '#435463'
+            : id === 'player-great'
+              ? '#514739'
+              : '#34434c'
         : id === 'monk'
           ? '#b7b3a0'
           : id === 'duelist'
@@ -148,7 +157,7 @@ export class Actor {
     this.head.scale.set(...profile.head);
     this.torso.add(this.head);
     mesh(this.head, m.sphere, skin, 0, 0.08, 0.04, 0.37, 0.46, 0.36);
-    if (player || id === 'assassin' || id === 'monk') {
+    if (player || id === 'assassin' || id === 'monk' || id === 'archer' || id === 'hexer') {
       mesh(this.head, m.sphere, this.cloak, 0, 0.12, -0.035, 0.54, 0.62, 0.5);
       mesh(this.head, m.sphere, dark, 0, 0.08, 0.205, 0.34, 0.39, 0.06);
       mesh(this.head, m.box, skin, 0, 0.1, 0.247, 0.22, 0.045, 0.01);
@@ -449,7 +458,86 @@ export class Actor {
           claw.rotation.x = 0.5;
         }
     }
+    if (id === 'player-great') {
+      for (const side of [-1, 1])
+        mesh(this.torso, m.cone, m.items.bronze, side * 0.33, -0.26, 0.23, 0.18, 0.22, 0.18);
+    } else if (id === 'player-spear') {
+      mesh(this.torso, m.rounded, this.cloak, 0.24, 0.5, 0.18, 0.22, 0.8, 0.11);
+      mesh(this.head, m.rounded, m.items.trim, 0, 0.3, 0.22, 0.35, 0.06, 0.06);
+    } else if (id === 'player-twins') {
+      for (const side of [-1, 1]) {
+        const wing = mesh(
+          this.mantle,
+          m.rounded,
+          this.cloak,
+          side * 0.32,
+          -0.12,
+          -0.24,
+          0.32,
+          0.7,
+          0.06,
+        );
+        wing.rotation.z = side * 0.3;
+      }
+    }
     this.mergeRigidParts(this.root);
+    if (player) this.createOutline();
+    if (id === 'archer' || id === 'hexer') this.setWeapon(id === 'archer' ? 'bow' : 'bell');
+  }
+
+  private createOutline(): void {
+    if (!this.outline) {
+      this.outline = new T.ShaderMaterial({
+        uniforms: {
+          color: {
+            value: new T.Color(
+              this.player ? characterFor(this.id.replace('player-', '')).color : '#e7d5ab',
+            ),
+          },
+          thickness: { value: 0.012 },
+          strength: { value: 0.55 },
+        },
+        vertexShader:
+          'uniform float thickness; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normal * thickness, 1.0); }',
+        fragmentShader:
+          'uniform vec3 color; uniform float strength; void main(){ gl_FragColor = vec4(color, strength); }',
+        side: T.BackSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      this.addOutline(this.root);
+    }
+  }
+
+  private addOutline(root: T.Group): void {
+    if (!this.outline) return;
+    const meshes: T.Mesh[] = [];
+    root.traverse((o) => {
+      if (o instanceof T.Mesh && o !== this.contact && o.material !== this.outline) meshes.push(o);
+    });
+    for (const source of meshes) {
+      const shell = new T.Mesh(source.geometry, this.outline);
+      shell.visible = this.outlineStrength !== 0;
+      shell.position.copy(source.position);
+      shell.rotation.copy(source.rotation);
+      shell.scale.copy(source.scale);
+      source.parent!.add(shell);
+    }
+  }
+  setOutline(strength: number): void {
+    if (this.outlineStrength === strength) return;
+    this.outlineStrength = strength;
+    if (strength > 0) this.createOutline();
+    if (this.outline) {
+      this.outline.uniforms.strength.value = strength;
+      this.outline.uniforms.thickness.value = strength > 0.8 ? 0.026 : 0.014;
+      this.root.traverse((o) => {
+        if (o instanceof T.Mesh && o.material === this.outline) o.visible = strength > 0;
+      });
+    }
+  }
+  setEmphasis(selected: boolean): void {
+    this.steel.color.set(selected ? '#899d9f' : '#39474b');
   }
 
   private mergeRigidParts(parent: T.Group): void {
@@ -513,6 +601,21 @@ export class Actor {
       this.blade.add(mesh);
       return mesh;
     };
+    if (id === 'bow' || id === 'bell') {
+      if (id === 'bow') {
+        const curve = new T.EllipseCurve(0, 0, 0.35, 0.8, -Math.PI / 2, Math.PI / 2, false, 0);
+        const points = curve.getPoints(16).map((p) => new T.Vector3(p.x, p.y, 0));
+        const geometry = new T.TubeGeometry(new T.CatmullRomCurve3(points), 16, 0.035, 5, false);
+        this.ownedGeometry.add(geometry);
+        piece(geometry, m.items.wood, 0, 0.3, 0, 1, 1, 1);
+        piece(m.cylinder, m.items.trim, 0, 0.3, 0, 0.008, 1.6, 0.008);
+      } else {
+        piece(m.cylinder, m.items.wood, 0, 0.5, 0, 0.07, 1.5, 0.07);
+        piece(m.cone, m.items.bronze, 0, 1.3, 0, 0.4, 0.45, 0.4);
+      }
+      this.blade.rotation.x = 0;
+      return;
+    }
     piece(m.cylinder, m.items.wood, 0, 0.08, 0, 0.08, id === 'spear' ? 1.8 : 0.29, 0.08);
     piece(m.sphere, m.items.bronze, 0, -0.1, 0, 0.14, 0.14, 0.14);
     const length = id === 'spear' ? 0.55 : id === 'great' ? 1.38 : id === 'twins' ? 0.65 : 1.04,
@@ -553,6 +656,10 @@ export class Actor {
     }
     this.mergeRigidParts(this.blade);
     this.mergeRigidParts(this.offhand);
+    if (this.outline) {
+      this.addOutline(this.blade);
+      this.addOutline(this.offhand);
+    }
   }
 
   animate(
@@ -604,7 +711,7 @@ export class Actor {
       this.smoothed.set(joint, current);
       this[joint].rotation.set(current.x, current.y, current.z);
     }
-    this.blade.rotation.x += Math.PI / 2;
+    if (this.weaponId !== 'bow' && this.weaponId !== 'bell') this.blade.rotation.x += Math.PI / 2;
     this.root.rotation.z = pose.lean;
     this.contact.visible = entity.state !== 'dead';
     this.torso.position.y = this.profile.hip + pose.lift;

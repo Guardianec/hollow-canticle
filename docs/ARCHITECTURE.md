@@ -1,4 +1,4 @@
-# Architecture — v0.3
+# Architecture — v0.4
 
 The simulation is a 2D action game. Three.js provides a render-only 2.5D world; it does
 not add a 3D physics engine or duplicate combat entities. Phaser runs the scene clock
@@ -87,7 +87,7 @@ an albedo/bump input, not a prerendered scene.
 
 ## Persistence
 
-The v1 save schema remains compatible: settings, discoveries, weapon unlocks, tutorial,
+The v2 parser migrates v1 settings, discoveries, weapon unlocks, tutorial,
 embers, and counters. No saved gameplay state is rewritten for the visual overhaul.
 Unknown/malformed saves retain safe defaults. Active runs still do not resume on reload.
 
@@ -115,3 +115,59 @@ The combat laboratory replaces the active test floor, clears reservations/effect
 and isolates run/relic progression from the saved Chronicle. Clip scrubbing and
 explicit camera selection are debug-only. A paused lab camera can snap to its
 selected frame for inspection; normal camera transitions remain interpolated.
+
+## v0.4 simulation components
+
+- `characters.ts`: four data-driven disciplines, ranged capacities/casts and melee move multipliers.
+- `projectiles.ts`: reusable bounded projectile store; swept circle contacts, ordered wall/actor
+  resolution, ally-team filtering, expiry and environment/LOS tests. Coordinates remain 2D.
+- `arsenal.ts`: authoritative firing, ranged AI, projectile defense/reflection and impact hooks.
+  World supplies movement, damage, tell and break callbacks; the renderer makes no hit decisions.
+- `items.ts`: ten item definitions and a five-total/two-per-kind selected-item inventory.
+- `buffs.ts`: timed active effects, refresh policy, ward consumption and centralized modifiers.
+- `loot.ts`: independent seeded reward stream, run pool, rarity selection, category weights and pity.
+- `world.ts`: integrates move clocks, item commitment, recharge, effect expiry, pickup interaction,
+  focus commands and existing combat/progression. Charges and durations advance in simulation time;
+  pause, rewards and hit-stop freeze them. Room transitions clear projectiles and retain buffs/charges.
+
+ThreatDirector accepts projectile travel time measured to the player’s contact radius, subtracting
+launch offset and projectile radius. Reservations predict arrival at commitment, without reading
+future input or steering released arrows. Player movement can change actual arrival time.
+Ranged support rechecks ally lanes on release and uses physical wall collision in flight.
+
+The same selected enemy is returned by World’s target getter for camera, HUD and combat.
+The scene treats relative mouse gestures as target input in cinematic mode; renderer projection
+maps those gestures to visible opponents. World validates target IDs and keeps attacks aimed at
+the selected opponent. Simulation still resolves contacts independently of camera/animation.
+Entering a room clears selection; target death falls back to a living opponent. Escape/pause and
+leaving close framing release pointer capture and restore menu/free-aim behavior.
+
+## v0.4 presentation
+
+`presentation/gallery.ts` presents the four actual rigs in a disposable menu WebGL canvas.
+It uses the same body profiles, weapons, idle sampler and selected-model hull outline as gameplay.
+`Actor` creates an extruded-backface outline only for actors that need one; hidden shells do not
+render. Gameplay hides the player hull and outlines only the focused enemy, following the user’s
+correction. The player keeps existing rim lighting. Stronger focus width is an accessibility toggle.
+
+`presentation/arsenal.ts` owns fixed pools of 48 projectile groups, 12 room pickup groups and eight
+projectile-parry groups. Arrow fans and orb compression rings share prebuilt geometry/materials;
+no geometry is created per projectile frame or projectile-parry event. Existing melee effects retain
+the accepted effect lifecycle. Velocity trails, reflected colors, ground cues, debug paths and edge
+warnings read simulation state. Camera group framing includes live hostile projectiles.
+
+HUD shows empty/full charge marks and recharge, selected offering/capacity, and at most five buff
+icons with remaining duration. Pause gives item/effect details; debug run stats expose all counters.
+
+## Persistence and determinism
+
+Save schema v2 remains under `hollow-canticle:v1` to retain existing installations. Its parser accepts
+numeric versions 1/2, validates settings/counters/IDs, and maps unlocked or used weapons to characters.
+New accessibility/tutorial fields default safely. Run inventory/buffs are deliberately transient.
+Normal run settlement stores at most ten local summaries under `hollow-canticle:local-runs:v1`.
+Malformed/unavailable history storage cannot prevent a run from ending. Reset removes both keys.
+Training/lab settlement never writes these summaries or progression. No networking is involved.
+
+Dungeon, attack choice and loot use separate seeded streams. Relic choices depend on owned relics
+and the same sequence of reward interactions. Cosmetic particle RNG is separate. Four new ranged
+relic hooks operate in Arsenal/recharge; the existing melee relic event system remains intact.

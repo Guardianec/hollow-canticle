@@ -49,7 +49,12 @@ export class CameraDirector {
     );
     const labSnapshot = w.debug && w.timeScale === 0 && w.lab.camera !== 'auto';
     if (labSnapshot) this.duel = close ? 1 : 0;
-    const group = w.alive.length > 1 || w.lab.camera === 'combat-wide';
+    const incoming = w.projectiles.active.filter((p) => p.team === 'enemy');
+    const group =
+      w.alive.length > 1 ||
+      incoming.length > 0 ||
+      w.alive.some((e) => ['archer', 'hexer'].includes(e.def.id)) ||
+      w.lab.camera === 'combat-wide';
     const bossMode = target?.def.id === 'boss' || w.lab.camera === 'boss';
     this.mode =
       this.duel > 0.5
@@ -83,7 +88,11 @@ export class CameraDirector {
       .addScaledVector(side, boss ? 7.6 : 4.8)
       .add(new T.Vector3(0, boss ? 1.4 : 1, 0));
     if (group && !finishing) {
-      const points = [playerPosition, ...w.alive.map((e) => globalPosition(w.room, e.x, e.y))];
+      const points = [
+        playerPosition,
+        ...w.alive.map((e) => globalPosition(w.room, e.x, e.y)),
+        ...incoming.map((p) => globalPosition(w.room, p.x, p.y)),
+      ];
       focus.set(0, 0, 0);
       points.forEach((p) => focus.add(p));
       focus.divideScalar(points.length);
