@@ -183,18 +183,26 @@ describe('live simulation flows', () => {
     tick(w, 0.4);
     expect(e.posture).toBe(posture);
   });
-  it('respects a single simultaneous attacker', () => {
+  it('overlaps preparations while spacing committed group impacts', () => {
     const w = arena();
     w.invincible = true;
     w.enemies.push(w.spawnEnemy('monk', 1));
     w.enemies[1].x = w.player.x - 85;
     w.enemies[1].y = w.player.y;
+    let overlap = false;
     for (let i = 0; i < 1500; i++) {
       w.update(1 / 120);
-      expect(
-        w.alive.filter((e) => e.state === 'tell' || e.state === 'active').length,
-      ).toBeLessThanOrEqual(1);
+      const preparing = w.alive.filter((e) => e.state === 'tell' || e.state === 'active');
+      expect(preparing.length).toBeLessThanOrEqual(2);
+      if (preparing.length === 2) overlap = true;
+      const rs = w.threats.reservations;
+      for (let a = 0; a < rs.length; a++)
+        for (let b = a + 1; b < rs.length; b++)
+          expect(Math.abs(rs[a].at - rs[b].at)).toBeGreaterThanOrEqual(
+            rs[a].special || rs[b].special ? 0.72 : 0.48,
+          );
     }
+    expect(overlap).toBe(true);
   });
   it('pauses clocks and clears buffered inputs', () => {
     const w = arena();

@@ -89,6 +89,24 @@ describe('v0.2 spatial grammar', () => {
   });
 });
 describe('independent exploration and duel presentation', () => {
+  it('keeps the Saint crown, raised weapon, and player feet in the boss frame', () => {
+    const w = new World(defaultSave());
+    w.start('BOSS-FRAME', 'sword');
+    w.enemies = [w.spawnEnemy('boss', 0)];
+    w.enemies[0].x = w.player.x + 85;
+    w.enemies[0].y = w.player.y;
+    const director = new CameraDirector(w);
+    director.resize(1440, 900);
+    for (let i = 0; i < 180; i++)
+      director.update(1 / 60, globalPosition(w.room, w.player.x, w.player.y));
+    for (const [entity, height] of [
+      [w.enemies[0], 5.8],
+      [w.player, 0],
+    ] as const) {
+      const point = globalPosition(w.room, entity.x, entity.y, height).project(director.camera);
+      expect(Math.abs(point.y)).toBeLessThan(0.95);
+    }
+  });
   it('accounts for raised stair surfaces when unprojecting aim', () => {
     const w = new World(defaultSave());
     w.start('STAIRS', 'sword');
@@ -121,17 +139,26 @@ describe('independent exploration and duel presentation', () => {
     expect(sim.y).toBeCloseTo(w.player.y, 4);
     expect(Math.hypot(...Object.values(director.movement(1, 0)))).toBeCloseTo(1, 5);
   });
-  it('returns to a high camera and keeps groups in an overview', () => {
+  it('frames every group combatant, then returns to exploration after combat', () => {
     const w = new World(defaultSave());
     w.start('CAMERA', 'sword', true);
     w.enemies[0].x = w.player.x + 85;
     w.enemies[0].y = w.player.y;
     const director = new CameraDirector(w),
       player = globalPosition(w.room, w.player.x, w.player.y);
+    director.resize(1440, 900);
     for (let i = 0; i < 180; i++) director.update(1 / 60, player);
     w.enemies.push(w.spawnEnemy('spear', 1));
     for (let i = 0; i < 180; i++) director.update(1 / 60, player);
-    expect(director.duel).toBeLessThan(0.02);
-    expect(director.camera.position.y).toBeGreaterThan(17);
+    expect(director.mode).toBe('combat-wide');
+    expect(director.camera.position.y).toBeGreaterThan(5);
+    for (const e of [w.player, ...w.enemies]) {
+      const p = globalPosition(w.room, e.x, e.y, 1).project(director.camera);
+      expect(Math.abs(p.x)).toBeLessThan(0.9);
+      expect(Math.abs(p.y)).toBeLessThan(0.9);
+    }
+    w.enemies = [];
+    for (let i = 0; i < 180; i++) director.update(1 / 60, player);
+    expect(director.mode).toBe('exploration');
   });
 });

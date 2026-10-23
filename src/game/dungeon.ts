@@ -103,7 +103,13 @@ export function makeFloor(seed: string, depth: number): Floor {
           );
     history.push(template);
     const budget =
-        kind === 'boss' ? 10 : kind === 'elite' ? 8 : Math.min(9, 3 + Math.floor(depth / 2)),
+        kind === 'boss'
+          ? 10
+          : kind === 'elite'
+            ? 8
+            : depth === 1 && rooms.length > 2 && kind === 'combat'
+              ? 5
+              : Math.min(9, 3 + Math.floor(depth / 2)),
       enemies = encounter(rng, kind, budget, biome, depth);
     rooms.push({
       id: rooms.length,
@@ -256,7 +262,23 @@ export function encounter(
         .id,
     ];
   if (kind !== 'combat') return [];
-  if (depth === 1) return [rng.pick(['warden', 'spear'])];
+  if (depth === 1 && budget < 5) return [rng.pick(['warden', 'spear'])];
+  const compositions = [
+    ['shield', 'spear'],
+    ['brute', 'assassin'],
+    ['monk', 'beast'],
+    ['duelist', 'warden'],
+    ['warden', 'spear'],
+    ['monk', 'warden'],
+  ];
+  const pairs = compositions.filter((pair) => {
+    const defs = pair.map((id) => ENEMIES.find((e) => e.id === id)!);
+    return (
+      defs.every((e) => e.affinity.includes(biome)) &&
+      defs.reduce((n, e) => n + e.cost, 0) <= budget
+    );
+  });
+  if (pairs.length && rng.next() < 0.7) return [...rng.pick(pairs)];
   const pool = ENEMIES.filter(
       (e) => e.id !== 'boss' && e.cost <= budget && e.affinity.includes(biome),
     ),

@@ -27,7 +27,7 @@ export class Renderer {
   private effects: Effects;
   private lights: T.PointLight[] = [];
   private sun = new T.DirectionalLight('#b3d0ed', 1.6);
-  private rim = new T.PointLight('#b9dcf1', 3, 8, 1.4);
+  private rim = new T.PointLight('#a9d8fa', 5.5, 10, 1.4);
   private fogSprites: T.Sprite[] = [];
   private observer: ResizeObserver;
   private previousPlayer = new T.Vector3();
@@ -156,7 +156,7 @@ export class Renderer {
     const changedFloor = this.floor !== w.floor;
     if (changedFloor) {
       if (this.floor) {
-        this.fade = w.mode === 'playing' ? 1 : 0;
+        this.fade = w.mode === 'playing' && !w.debug ? 1 : 0;
         this.director.reset();
       }
       if (this.art) {
@@ -232,7 +232,16 @@ export class Renderer {
           ground: true,
         });
     }
-    this.player.animate(w.player, w.time, w.visualTime, walking, duel, w.weapon.id);
+    const animationOptions = { ...w.lab, reducedMotion: w.save.settings.reducedMotion };
+    this.player.animate(
+      w.player,
+      w.time,
+      w.visualTime,
+      walking,
+      duel,
+      w.weapon.id,
+      animationOptions,
+    );
     for (const e of w.enemies) {
       let actor = this.actors.get(e.id);
       if (!actor || actor.id !== e.def.id) {
@@ -246,14 +255,21 @@ export class Renderer {
         this.scene.add(actor.root);
       }
       actor.root.position.copy(globalPosition(w.room, e.x, e.y));
-      actor.animate(
+      const animation = actor.animate(
         e,
         w.time,
         w.visualTime,
         e.state === 'idle' && w.mode === 'playing',
         duel,
         w.weapon.id,
+        animationOptions,
       );
+      if (e === w.target) {
+        w.lab.animationName = animation.name;
+        w.lab.normalized = animation.normalized;
+        w.lab.hitWindow = animation.clip?.hitWindow?.map((n) => n.toFixed(2)).join('–') ?? 'none';
+        w.lab.rootMotion = animation.pose.advance;
+      }
     }
     this.sun.position.copy(playerPosition).add(new T.Vector3(15, 30, 10));
     this.sun.target.position.copy(playerPosition);
@@ -359,6 +375,9 @@ export class Renderer {
     this.composer.dispose();
     this.bloom.dispose();
     this.output.dispose();
+    this.effects.dispose();
+    this.player.dispose();
+    for (const actor of this.actors.values()) actor.dispose();
     this.webgl.dispose();
     this.materials.dispose();
     this.hud.root.remove();

@@ -23,6 +23,7 @@ import { normalizeSeed, Random } from './random';
 import { persist, type Save } from './save';
 import { Audio } from './audio';
 import { canStand, pathBetween } from './geometry';
+import { ThreatDirector } from './threat';
 
 export type Mode = 'menu' | 'playing' | 'paused' | 'reward' | 'dead' | 'trained';
 export type PlayerState =
@@ -44,6 +45,13 @@ export interface Player {
   attackHit: boolean;
   dx: number;
   dy: number;
+  combo: number;
+  counter: boolean;
+  attackStartup: number;
+  attackRecovery: number;
+  emptyParries: number;
+  parryLanded: boolean;
+  finisherTarget: string;
 }
 export interface Enemy {
   path?: { x: number; y: number }[];
@@ -67,6 +75,10 @@ export interface Enemy {
   phase: number;
   burns: number;
   blocks: number;
+  variant: number;
+  recoilAt: number;
+  counterQueued: boolean;
+  chainExtended: boolean;
 }
 export interface Particle {
   ground?: boolean;
@@ -88,6 +100,8 @@ export interface Effect {
   kind: 'slash' | 'ring' | 'perfect' | 'finish' | 'hurt';
   color: string;
   scale: number;
+  weapon?: string;
+  attackKind?: Strike['kind'];
 }
 export interface Toast {
   text: string;
@@ -131,6 +145,7 @@ export class World {
   time = 0;
   visualTime = 0;
   training = false;
+  laboratory = false;
   trainingDone = new Set<string>();
   stats!: RunStats;
   buffer = new InputBuffer();
@@ -160,8 +175,21 @@ export class World {
   private rng = new Random('effects');
   private rewardRng = new Random('rewards');
   private settled = false;
-  private attackToken = -1;
+  readonly threats = new ThreatDirector();
+  lab = {
+    pattern: -1,
+    camera: 'auto',
+    clip: 'live',
+    clipTime: 0,
+    freeze: false,
+    animationName: '',
+    normalized: 0,
+    hitWindow: '',
+    rootMotion: 0,
+  };
   private iceDrift = { x: 0, y: 0 };
+  echoes: { enemy: number; x: number; y: number; at: number; radius: number }[] = [];
+  private execution?: { at: number; x: number; y: number; force: number };
 
   constructor(public save: Save) {
     this.audio = new Audio(save.settings);
@@ -249,6 +277,13 @@ export class World {
       attackHit: false,
       dx: 1,
       dy: 0,
+      combo: 0,
+      counter: false,
+      attackStartup: this.weapon.startup,
+      attackRecovery: this.weapon.recovery,
+      emptyParries: 0,
+      parryLanded: true,
+      finisherTarget: '',
     };
     this.stats = {
       kills: 0,
@@ -266,6 +301,7 @@ export class World {
     };
   }
   start(seed: string, weaponId: string, training = false): void {
+    this.laboratory = false;
     this.seed = normalizeSeed(seed);
     this.weapon = WEAPONS.find((w) => w.id === weaponId) || WEAPONS[0];
     this.floor = makeFloor(this.seed, 1);
@@ -309,7 +345,9 @@ export class World {
     this.roomRevision++;
     this.effects = [];
     this.particles = [];
-    this.attackToken = -1;
+    this.threats.clear();
+    this.echoes = [];
+    this.execution = undefined;
     this.iceDrift = { x: 0, y: 0 };
     this.buffer.clear();
     this.clearAt = 0;
@@ -369,7 +407,59 @@ export class World {
       phase: 1,
       burns: 0,
       blocks: 0,
+      variant: 0,
+      recoilAt: -99,
+      counterQueued: false,
+      chainExtended: false,
     };
+  }
+
+  configureLab(options: {
+    enemy: string;
+    support: string;
+    count: number;
+    elite: string;
+    depth: number;
+    biome: number;
+    pattern: number;
+  }): void {
+    if (!this.debug) return;
+    const depth = Number.isFinite(options.depth)
+      ? Math.max(1, Math.min(10000, Math.floor(options.depth)))
+      : 1;
+    const base = makeFloor(this.seed, depth);
+    const biome = Math.max(0, Math.min(4, Math.floor(options.biome) || 0));
+    const room = {
+      ...base.rooms[0],
+      template: 'bell-bastion',
+      name: 'The Rehearsal Belfry',
+      kind: options.elite === 'none' ? ('combat' as const) : ('elite' as const),
+      elite: (['Patient', 'Relentless', 'Armored'].includes(options.elite)
+        ? options.elite
+        : 'Patient') as Room['elite'],
+      cleared: false,
+      enemies: Array.from(
+        { length: Math.max(1, Math.min(3, Math.floor(options.count) || 1)) },
+        (_, i) => (i === 0 || options.support === 'same' ? options.enemy : options.support),
+      ),
+    };
+    this.floor = { ...base, biome, hybrid: null, rooms: [room, ...base.rooms.slice(1)] };
+    this.training = false;
+    this.laboratory = true;
+    this.toast = undefined;
+    this.trainingDone.clear();
+    this.resetPlayer();
+    this.hitStop = 0;
+    this.events = [];
+    this.mode = 'playing';
+    this.lab.pattern = options.pattern;
+    this.enterRoom(0);
+    this.player.x = 535;
+    this.player.y = 400;
+    this.enemies.forEach((e, i) => {
+      e.x = i === 0 ? 620 : i === 1 ? 510 : 680;
+      e.y = i === 0 ? 400 : i === 1 ? 500 : 480;
+    });
   }
 
   input(action: Action): void {
@@ -407,9 +497,29 @@ export class World {
     this.time += dt;
     this.stats.time += dt;
     this.updatePlayer(dt);
+    if (this.execution && this.time >= this.execution.at) {
+      const hit = this.execution;
+      this.execution = undefined;
+      this.impact(hit.x, hit.y, '#f9da9f', 65, 'perfect', hit.force);
+      this.environmentImpact(hit.x, hit.y, hit.force);
+      this.audio.play('finisher', this.weapon.id);
+      this.hitStop = this.save.settings.reducedMotion ? 0.025 : 0.09;
+    }
+    this.threats.prune(this.time);
     for (const enemy of this.enemies) this.updateEnemy(enemy, dt);
     this.separateEnemies();
     this.updateHazards();
+    for (const echo of this.echoes) {
+      if (this.time < echo.at) continue;
+      this.environmentImpact(echo.x, echo.y, 1.8);
+      this.effect(echo.x, echo.y, 'ring', '#b8dfea', 0.35, 2.8);
+      if (
+        distance(this.player, echo) < echo.radius &&
+        this.time - this.player.dodgeAt > BALANCE.dodgeInvulnerable
+      )
+        this.hurt(16, 'THE BELL RETURNS — LEAVE THE ECHO');
+    }
+    this.echoes = this.echoes.filter((e) => e.at > this.time);
     if (!this.combat && !this.room.cleared) this.clearRoom();
     if (this.clearAt && this.time > this.clearAt) {
       this.clearAt = 0;
@@ -448,7 +558,14 @@ export class World {
       finisher: 0.7,
       dead: Infinity,
     };
-    if (age >= durations[p.state]) p.state = 'idle';
+    if (age >= durations[p.state]) {
+      if (p.state === 'parry' && !p.parryLanded) {
+        p.emptyParries = Math.min(3, p.emptyParries + 1);
+        p.posture = Math.min(90, p.posture + 4);
+      }
+      p.state = 'idle';
+    }
+    if (p.state === 'idle' && this.time - p.parryAt > 1.8) p.emptyParries = 0;
     const action = this.buffer.consume(this.time, (a) => {
       if (a === 'interact') return p.state === 'idle' || p.state === 'parry';
       if (a === 'dodge')
@@ -527,9 +644,14 @@ export class World {
       );
       return;
     }
+    const previousAge = this.time - p.stateAt;
     p.state = action;
     p.stateAt = this.time;
     if (action === 'attack') {
+      p.combo = previousAge < 1 ? (p.combo + 1) % 3 : 0;
+      p.counter = this.time < p.counterUntil;
+      p.attackStartup = this.weapon.startup;
+      p.attackRecovery = this.weapon.recovery;
       p.attackHit = false;
       const target = this.chooseTarget();
       if (target) p.facing = Math.atan2(target.y - p.y, target.x - p.x);
@@ -539,6 +661,7 @@ export class World {
     }
     if (action === 'parry') {
       p.parryAt = this.time;
+      p.parryLanded = false;
       this.effect(p.x, p.y, 'ring', '#b9e1de', 0.32, 0.55);
     }
     if (action === 'dodge') {
@@ -577,11 +700,13 @@ export class World {
       this.weapon.reach / 90,
       p.facing,
     );
-    this.move(
-      p,
-      Math.cos(p.facing) * (this.weapon.id === 'spear' ? 16 : 10),
-      Math.sin(p.facing) * 10,
-    );
+    const step = this.weapon.id === 'spear' ? 16 : 10;
+    this.move(p, Math.cos(p.facing) * step, Math.sin(p.facing) * step);
+    Object.assign(this.effects[this.effects.length - 1], {
+      weapon: this.weapon.id,
+      attackKind:
+        this.weapon.id === 'spear' ? 'thrust' : this.weapon.id === 'great' ? 'smash' : 'slash',
+    });
     for (const enemy of this.alive) {
       if (
         enemy.state === 'broken' ||
@@ -593,7 +718,8 @@ export class World {
       enemy.hp -= (this.weapon.damage + this.hunger) * (block ? 0.18 : counter ? 1.4 : 1);
       this.pressure(
         enemy,
-        posturePressure(this.weapon.pressure, p.focus, counter, this.weapon.id === 'spear'),
+        posturePressure(this.weapon.pressure, p.focus, counter, this.weapon.id === 'spear') *
+          (this.room.kind === 'elite' && this.room.elite === 'Armored' && !counter ? 0.65 : 1),
       );
       this.impact(enemy.x, enemy.y - 16, block ? '#e8bc79' : '#c5d6d7', 11, 'ring', 0.45);
       this.audio.play(block ? 'parry' : 'hit');
@@ -609,6 +735,7 @@ export class World {
         if (enemy.def.reaction === 'retreat')
           this.move(enemy, Math.cos(p.facing) * 45, Math.sin(p.facing) * 45);
         enemy.readyAt = this.time + (enemy.def.reaction === 'counter' ? 0.12 : 0.4);
+        enemy.counterQueued = enemy.def.reaction === 'counter';
       }
       if (this.weapon.id === 'twins') p.focus += 3;
       if (counter) {
@@ -626,7 +753,10 @@ export class World {
     const age = this.time - e.stateAt;
     const dist = distance(e, p);
     const isBoss = e.def.id === 'boss';
-    if (isBoss && e.phase === 1 && e.hp < e.maxHp * 0.48 && e.state !== 'broken') this.phaseBoss(e);
+    if (isBoss && e.phase === 1 && e.hp < e.maxHp * 0.48 && e.state !== 'broken') {
+      this.phaseBoss(e);
+      return;
+    }
     if (e.burns > this.time) this.pressure(e, 5 * dt);
     if (e.state === 'broken') {
       if (age > 5) {
@@ -644,23 +774,50 @@ export class World {
         e.state = 'recover';
         e.stateAt = this.time;
         e.readyAt = this.time + 0.15;
-        this.attackToken = -1;
+        // The aborted tell keeps its spacing reservation, then flows into the next beat.
         return;
       }
       if (age >= e.strike.windup) {
         e.state = 'active';
         e.stateAt = this.time;
         if (dist < e.strike.reach + 60)
-          this.move(e, Math.cos(e.facing) * 18, Math.sin(e.facing) * 18);
-        this.effect(
-          e.x,
-          e.y,
-          'slash',
-          ['sweep', 'grab', 'smash'].includes(e.strike.kind) ? '#e48b79' : '#e6b679',
-          0.28,
-          e.strike.reach / 90,
-          e.facing,
-        );
+          this.move(
+            e,
+            Math.cos(e.facing) * (e.strike.step ?? 18),
+            Math.sin(e.facing) * (e.strike.step ?? 18),
+          );
+        if (e.strike.kind !== 'grab')
+          this.effect(
+            e.x,
+            e.y,
+            'slash',
+            ['sweep', 'grab', 'smash'].includes(e.strike.kind) ? '#e48b79' : '#e6b679',
+            0.28,
+            e.strike.reach / 90,
+            e.facing,
+          );
+        if (e.strike.kind !== 'grab')
+          Object.assign(this.effects[this.effects.length - 1], {
+            weapon:
+              e.def.id === 'spear'
+                ? 'spear'
+                : ['brute', 'boss'].includes(e.def.id)
+                  ? 'great'
+                  : e.def.id === 'assassin'
+                    ? 'twins'
+                    : 'sword',
+            attackKind: e.strike.kind,
+          });
+        if (e.strike.kind === 'smash') {
+          this.environmentImpact(e.x + Math.cos(e.facing) * 55, e.y + Math.sin(e.facing) * 55, 1.5);
+          this.hitStop = this.save.settings.reducedMotion ? 0.015 : 0.035;
+        }
+        if (e.strike.echo) {
+          const x = e.x + Math.cos(e.facing) * 65,
+            y = e.y + Math.sin(e.facing) * 65;
+          this.echoes.push({ enemy: e.id, x, y, at: this.time + 0.9, radius: 95 });
+          this.effect(x, y, 'ring', '#e6a074', 0.9, 2.4);
+        }
         this.enemyHit(e);
       }
       return;
@@ -670,7 +827,6 @@ export class World {
         e.state = 'recover';
         e.stateAt = this.time;
         e.readyAt = this.time + e.strike.recovery;
-        this.attackToken = -1;
       }
       return;
     }
@@ -681,15 +837,24 @@ export class World {
       }
       return;
     }
-    if (this.time - e.lastPressure > (dist < 180 ? 2.3 : 1.1))
-      e.posture = Math.max(0, e.posture - dt * (dist < 180 ? 5 : 16) * (0.35 + e.hp / e.maxHp));
+    if (this.time - e.lastPressure > (dist < 180 ? 1.8 : 1.1))
+      e.posture = Math.max(0, e.posture - dt * (dist < 180 ? 8 : 16) * (0.35 + e.hp / e.maxHp));
     e.facing = Math.atan2(p.y - e.y, p.x - e.x);
-    const preferred = e.def.id === 'spear' ? 125 : isBoss ? 110 : 78;
+    const preferred =
+      e.def.id === 'spear'
+        ? 140
+        : e.def.id === 'shield'
+          ? 70
+          : e.def.id === 'duelist'
+            ? 105
+            : isBoss
+              ? 110
+              : 78;
     const speed =
       e.def.speed * (this.room.modifier === 'Resonant' ? 1.12 : 1) * (e.phase === 2 ? 1.15 : 1);
     if (dist > preferred) {
-      const orbit = this.attackToken !== -1 && this.attackToken !== e.id;
-      let angle = e.facing + (orbit ? 0.9 : 0);
+      const orbit = this.threats.reservations.some((r) => r.enemy !== e.id && r.at > this.time);
+      let angle = e.facing + (orbit ? (e.id % 2 ? -0.7 : 0.7) : 0);
       const blocked =
         !canStand(this.room, e.x + Math.cos(angle) * 32, e.y + Math.sin(angle) * 32) ||
         this.obstacles.some(
@@ -705,48 +870,99 @@ export class World {
         while (e.path?.length && distance(e, e.path[0]) < 24) e.path.shift();
         if (e.path?.[0]) angle = Math.atan2(e.path[0].y - e.y, e.path[0].x - e.x);
       }
-      if (!orbit || dist > 135)
-        this.move(e, Math.cos(angle) * speed * dt, Math.sin(angle) * speed * dt);
+      this.move(e, Math.cos(angle) * speed * dt, Math.sin(angle) * speed * dt);
+    } else if (this.alive.length > 1 && !this.training) {
+      const angle = e.facing + (e.id % 2 ? -Math.PI / 2 : Math.PI / 2);
+      this.move(e, Math.cos(angle) * speed * dt * 0.3, Math.sin(angle) * speed * dt * 0.3);
     }
-    if (
-      dist < e.strike.reach + 25 &&
-      this.time >= e.readyAt &&
-      this.attackToken === -1 &&
-      p.state !== 'finisher'
-    ) {
-      const patterns = e.def.patterns;
+    if (dist < e.strike.reach + 25 && this.time >= e.readyAt && p.state !== 'finisher') {
+      const patterns = e.phase === 2 && e.def.phaseTwo ? e.def.phaseTwo : e.def.patterns;
+      if (e.index === 0 && this.lab.pattern < 0) {
+        if (e.counterQueued && e.def.id === 'duelist') e.pattern = 3;
+        else if (p.emptyParries >= 2 && ['assassin', 'duelist'].includes(e.def.id)) e.pattern = 2;
+        else if (e.def.id === 'spear' && dist > 120) e.pattern = 1;
+      }
+      if (this.debug && this.lab.pattern >= 0) e.pattern = this.lab.pattern;
       const pattern = patterns[e.pattern % patterns.length];
       const next = pattern[e.index % pattern.length];
       const haste = Math.max(0.82, 1 - (this.floor.depth - 1) * 0.012) * (e.phase === 2 ? 0.82 : 1);
       const patience = this.room.kind === 'elite' && this.room.elite === 'Patient' ? 1.22 : 1;
-      e.strike = {
+      const strike = {
         ...next,
         windup: next.windup * haste * patience,
         recovery:
           next.recovery *
           (this.room.kind === 'elite' && this.room.elite === 'Relentless' ? 0.65 : 1),
       };
+      if (
+        this.room.kind === 'elite' &&
+        this.room.elite === 'Patient' &&
+        e.variant % 4 === 2 &&
+        ['slash', 'thrust'].includes(strike.kind)
+      ) {
+        strike.kind = 'feint';
+        strike.recovery = 0.18;
+      }
+      if (
+        this.enemies.some(
+          (other) =>
+            other !== e &&
+            other.state !== 'dead' &&
+            distance(other, e) < dist &&
+            distance(other, p) < dist &&
+            Math.abs(angleDifference(Math.atan2(other.y - e.y, other.x - e.x), e.facing)) < 0.25,
+        )
+      )
+        return;
+      if (!this.threats.reserve(e.id, this.time, strike, this.floor.depth)) return;
+      e.strike = strike;
+      e.variant++;
+      e.counterQueued = false;
       e.index++;
       if (e.index >= pattern.length) {
-        e.index = 0;
-        e.pattern++;
+        if (this.room.kind === 'elite' && this.room.elite === 'Relentless' && !e.chainExtended) {
+          e.index = pattern.length - 1;
+          e.chainExtended = true;
+        } else {
+          if (e.chainExtended) e.strike.recovery += 0.5;
+          e.chainExtended = false;
+          e.index = 0;
+          e.pattern =
+            (e.pattern + 1) %
+            Math.min(patterns.length, this.floor.depth >= 3 || e.phase === 2 ? patterns.length : 2);
+        }
       }
       this.beginTell(e);
     }
   }
 
   private beginTell(e: Enemy): void {
-    if (this.attackToken !== -1 && this.attackToken !== e.id) return;
+    if (
+      !this.threats.reservations.some((r) => r.enemy === e.id) &&
+      !this.threats.reserve(e.id, this.time, e.strike, this.floor.depth)
+    )
+      return;
     e.state = 'tell';
     e.stateAt = this.time;
-    this.attackToken = e.id;
-    if (this.room.modifier !== 'Silence') this.audio.play('tell');
+    if (this.room.modifier !== 'Silence') this.audio.play('tell', e.def.id);
   }
   private enemyHit(e: Enemy): void {
     const p = this.player;
     if (this.time < p.immunity || p.state === 'finisher') return;
     const facing = Math.atan2(p.y - e.y, p.x - e.x);
     if (Math.abs(angleDifference(facing, e.facing)) > (e.strike.kind === 'sweep' ? 2.6 : 1.2))
+      return;
+    const dist = distance(e, p);
+    if (
+      this.alive.some(
+        (other) =>
+          other !== e &&
+          other.state !== 'broken' &&
+          distance(e, other) < dist &&
+          distance(p, other) < dist &&
+          Math.abs(angleDifference(Math.atan2(other.y - e.y, other.x - e.x), facing)) < 0.25,
+      )
+    )
       return;
     const defense = resolveDefense({
       strike: e.strike,
@@ -755,7 +971,7 @@ export class World {
       dodgeAge: this.time - p.dodgeAt,
       weapon: this.weapon,
       assist: this.save.settings.assist || this.training,
-      bonusWindow: this.bonusWindow,
+      bonusWindow: this.bonusWindow - Math.min(0.075, p.emptyParries * 0.025),
     });
     if (defense === 'miss') return;
     if (defense === 'dodge') {
@@ -766,6 +982,9 @@ export class World {
     }
     if (defense === 'parry' || defense === 'perfect') {
       const perfect = defense === 'perfect';
+      p.parryLanded = true;
+      p.emptyParries = 0;
+      e.recoilAt = this.time;
       this.bonusWindow = 0;
       this.lastPerfect = perfect;
       this.stats.parries++;
@@ -789,8 +1008,9 @@ export class World {
         perfect ? 'perfect' : 'ring',
         perfect ? 1.3 : 0.7,
       );
+      this.environmentImpact((p.x + e.x) / 2, (p.y + e.y) / 2, perfect ? 0.75 : 0.3);
       this.hitStop = this.save.settings.reducedMotion ? 0.025 : perfect ? 0.065 : 0.032;
-      this.audio.play(perfect ? 'perfect' : 'parry');
+      this.audio.play(perfect ? 'perfect' : 'parry', e.def.id);
       this.announce(
         perfect ? 'PERFECT DEFLECTION' : 'DEFLECTED',
         perfect ? 'Their guard fractures. Press the advantage.' : 'Strike now to counter.',
@@ -799,7 +1019,8 @@ export class World {
       );
       this.pressure(
         e,
-        posturePressure(perfect ? BALANCE.perfectPressure : BALANCE.parryPressure, p.focus, false),
+        posturePressure(perfect ? BALANCE.perfectPressure : BALANCE.parryPressure, p.focus, false) *
+          (perfect && this.room.kind === 'elite' && this.room.elite === 'Armored' ? 1.2 : 1),
       );
       this.emit('parry', e);
       if (perfect) this.emit('perfect', e);
@@ -860,7 +1081,7 @@ export class World {
     e.posture = e.maxPosture;
     e.state = 'broken';
     e.stateAt = this.time;
-    if (this.attackToken === e.id) this.attackToken = -1;
+    this.threats.release(e.id);
     this.impact(e.x, e.y - 20, '#f5cd86', 35, 'perfect', 1.6);
     this.audio.play('break');
     this.hitStop = 0.08;
@@ -875,6 +1096,7 @@ export class World {
   private finish(e: Enemy): void {
     const p = this.player;
     p.state = 'finisher';
+    p.finisherTarget = e.def.id;
     p.stateAt = this.time;
     p.immunity = this.time + 1.1;
     p.facing = Math.atan2(e.y - p.y, e.x - p.x);
@@ -892,9 +1114,17 @@ export class World {
       this.weapon.id === 'great' ? 2 : 1.5,
       p.facing,
     );
-    this.impact(e.x, e.y - 16, '#f9da9f', 65, 'perfect', 2.3);
-    this.audio.play('finisher');
-    this.hitStop = this.save.settings.reducedMotion ? 0.04 : 0.12;
+    Object.assign(this.effects[this.effects.length - 1], {
+      weapon: this.weapon.id,
+      attackKind:
+        this.weapon.id === 'spear' ? 'thrust' : this.weapon.id === 'great' ? 'smash' : 'slash',
+    });
+    this.execution = {
+      at: this.time + 0.7 * 0.58,
+      x: e.x,
+      y: e.y - 16,
+      force: this.weapon.id === 'great' ? 2.3 : 1.7,
+    };
     this.stats.finishers++;
     this.trainingDone.add('finisher');
     this.emit('finisher', e);
@@ -905,6 +1135,7 @@ export class World {
       this.announce('THE SECOND TOLL', 'The Saint casts off its mantle.', '#e3b889', 2.5);
     } else {
       e.state = 'dead';
+      e.stateAt = this.time + 0.35;
       this.stats.kills++;
       p.focus += 8;
       if (e.def.id === 'boss') this.stats.bosses++;
@@ -916,10 +1147,14 @@ export class World {
         '#ebd3a2',
         1.7,
       );
-      if (this.room.modifier === 'Blood pact')
-        for (const other of this.alive) other.readyAt = this.time + 0.1;
+      for (const other of this.alive)
+        other.readyAt = Math.min(
+          other.readyAt,
+          this.time + (this.room.modifier === 'Blood pact' ? 0.7 : 1),
+        );
     }
-    this.attackToken = -1;
+    this.threats.release(e.id);
+    this.echoes = this.echoes.filter((echo) => echo.enemy !== e.id);
   }
   private phaseBoss(e: Enemy): void {
     e.phase = 2;
@@ -927,7 +1162,11 @@ export class World {
     e.stateAt = this.time;
     e.readyAt = this.time + 1.4;
     e.posture = 0;
-    this.attackToken = -1;
+    this.threats.release(e.id);
+    this.echoes = this.echoes.filter((echo) => echo.enemy !== e.id);
+    e.pattern = 0;
+    e.index = 0;
+    this.environmentImpact(e.x, e.y, 2);
     this.impact(e.x, e.y, '#d7967d', 45, 'ring', 2);
     this.announce('THE SECOND TOLL', 'New rhythm. Shorter silences.', '#dfad88', 2.3);
   }
@@ -1006,8 +1245,10 @@ export class World {
         this.enterRoom(0);
         p.hp = Math.min(100, hp + 18);
         p.focus = focus;
-        this.save.bestDepth = Math.max(this.save.bestDepth, this.floor.depth);
-        persist(this.save);
+        if (!this.laboratory) {
+          this.save.bestDepth = Math.max(this.save.bestDepth, this.floor.depth);
+          persist(this.save);
+        }
         this.announce(
           BIOMES[this.floor.biome].name.toUpperCase(),
           `DEPTH ${String(this.floor.depth).padStart(2, '0')} · ${this.floor.hybrid === null ? BIOMES[this.floor.biome].label : `MUTATION: ${BIOMES[this.floor.hybrid].short.toUpperCase()}`}`,
@@ -1084,8 +1325,10 @@ export class World {
     const relic = this.rewards.find((r) => r.id === id);
     if (!relic || this.mode !== 'reward') return;
     this.relics.push(relic);
-    if (!this.save.relics.includes(id)) this.save.relics.push(id);
-    persist(this.save);
+    if (!this.laboratory) {
+      if (!this.save.relics.includes(id)) this.save.relics.push(id);
+      persist(this.save);
+    }
     this.mode = 'playing';
     this.rewards = [];
     this.announce(relic.name.toUpperCase(), relic.description, '#d5c69d', 3);
@@ -1102,7 +1345,7 @@ export class World {
     this.events.push({ type: 'death' });
   }
   settleRun(): void {
-    if (this.settled || this.training) return;
+    if (this.settled || this.training || this.laboratory) return;
     this.settled = true;
     this.save.runs++;
     this.save.kills += this.stats.kills;
@@ -1227,5 +1470,27 @@ export class World {
     }
     this.shake = Math.max(this.shake, kind === 'perfect' ? 5 * scale : 2);
     if (this.save.settings.flashes && kind === 'perfect') this.flash = 0.12 * scale;
+  }
+
+  environmentImpact(x: number, y: number, force: number): void {
+    const biome = this.floor.biome;
+    const color = ['#a99d84', '#9bdbec', '#c6a2ef', '#d6edf7', '#ffb15f'][biome];
+    const count = Math.ceil(12 * force);
+    for (let i = 0; i < count; i++) {
+      const a = i * 2.399963,
+        life = 0.3 + this.rng.next() * 0.4;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(a) * 90 * force,
+        vy: Math.sin(a) * 60 * force,
+        life,
+        maxLife: life,
+        color,
+        size: 2,
+        ground: true,
+      });
+    }
+    if (biome === 1 || force > 1) this.effect(x, y, 'ring', color, 0.5, force * 1.3);
   }
 }

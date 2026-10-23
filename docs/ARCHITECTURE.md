@@ -1,4 +1,4 @@
-# Architecture — v0.2
+# Architecture — v0.3
 
 The simulation is a 2D action game. Three.js provides a render-only 2.5D world; it does
 not add a 3D physics engine or duplicate combat entities. Phaser runs the scene clock
@@ -20,7 +20,11 @@ in headless mode. Native input and HTML UI sit above the WebGL canvas.
 - `presentation/materials.ts`: shared materials, original image texture, procedural
   fabric, low-cost beveled blocks, room batches, and player visibility cutout shader.
 - `presentation/actors.ts`: articulated humanoids, enemy silhouettes, weapon meshes,
-  cloth deformation, combat LOD, pose timelines, and per-joint mesh merging.
+  cloth deformation, support-hand targeting, combat LOD, and per-joint mesh merging.
+- `presentation/profiles.ts`: proportions, stance, guard, cloth scale, and gait vocabulary.
+- `presentation/animation.ts`: normalized multijoint keyframes, semantic attack families,
+  archetype/phase variants, hit-window metadata, and pure sampling.
+- `threat.ts`: immutable committed impact reservations, preparation budget, and defense spacing.
 - `presentation/camera.ts`: high exploration framing, close perspective duet framing,
   interpolation, contact/finisher framing, screen/world mapping, movement basis.
 - `presentation/effects.ts`: streamed spark lines, trails, radial impacts, contact light,
@@ -46,7 +50,7 @@ and convert back to local simulation coordinates. Tests exercise this conversion
 the close camera. World state is shared between exploration and combat representations.
 
 The duel camera activates for a nearby significant single opponent or a finisher.
-Groups retain overview framing. The same articulated entity gains finer visible
+Groups use combat-wide framing that fits the living combatants. The same articulated entity gains finer visible
 armor detail during close presentation; there is no second health or timing model.
 Finishers retain the close view after the enemy leaves the living-target list.
 
@@ -86,3 +90,28 @@ an albedo/bump input, not a prerendered scene.
 The v1 save schema remains compatible: settings, discoveries, weapon unlocks, tutorial,
 embers, and counters. No saved gameplay state is rewritten for the visual overhaul.
 Unknown/malformed saves retain safe defaults. Active runs still do not resume on reload.
+
+## Combat presentation and coordination
+
+Simulation state/time maps to normalized clip time; an enemy contact is at 0.58,
+matching the tell-to-active boundary. Rendering never fires damage events. Player
+startup/recovery and execution contact are also sampled from simulation time. Joint
+rotation blends are render-only. Elbows/knees articulate separately; two-handed
+weapons use bounded analytic support-hand targeting, not terrain or full-body IK.
+
+Profiles distinguish the disciplined Warden, asymmetric Aegis, sideways Duelist,
+linear Lancer, low Reaver, upright robed Cantor, heavy Bellbreaker, hunched clawed
+Sporebound, and elongated Saint. Motion recipes share semantic foundations while
+altering multi-joint poses, guard, cadence, and stride per archetype. Death and
+some recoveries still share a foundation and need further authored polishing.
+
+Two enemies may prepare at once. Commitments reserve impact time with at least
+480 ms between ordinary attacks (400 ms at depth 5+) and 720 ms around specials.
+The reservation persists briefly after contact; interrupted enemies release it.
+Patterns branch only between commitments. The phase-two Saint marks a floor
+location before its delayed echo; leaving it or evading avoids the returning hit.
+
+The combat laboratory replaces the active test floor, clears reservations/effects,
+and isolates run/relic progression from the saved Chronicle. Clip scrubbing and
+explicit camera selection are debug-only. A paused lab camera can snap to its
+selected frame for inspection; normal camera transitions remain interpolated.

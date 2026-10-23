@@ -388,7 +388,7 @@ export class Interface {
     this.show(
       'credits',
       'An original requiem',
-      `<p class="dialog-copy">Hollow Canticle is a small game about the moment before two blades meet.</p><div class="credits-text"><p>Architecture, characters, particles, and audio are built by the game. The original stone texture was generated with imagegen. The supplied concepts are references; none is a gameplay backdrop.</p><p>Made with TypeScript, Phaser 4, Three.js WebGL, Vite, and WebAudio. No backend. No accounts. No analytics.</p><p>Inspired by the craft of precision combat. An original world, with no affiliation to other games.</p><p class="eyebrow">VERSION 0.2.0 · CODE & ORIGINAL ASSETS: MIT</p></div><button class="primary full" data-action="back">Return to the threshold</button>`,
+      `<p class="dialog-copy">Hollow Canticle is a small game about the moment before two blades meet.</p><div class="credits-text"><p>Architecture, characters, particles, and audio are built by the game. The original stone texture was generated with imagegen. The supplied concepts are references; none is a gameplay backdrop.</p><p>Made with TypeScript, Phaser 4, Three.js WebGL, Vite, and WebAudio. No backend. No accounts. No analytics.</p><p>Inspired by the craft of precision combat. An original world, with no affiliation to other games.</p><p class="eyebrow">VERSION 0.3.0 · CODE & ORIGINAL ASSETS: MIT</p></div><button class="primary full" data-action="back">Return to the threshold</button>`,
     );
   }
 
@@ -463,7 +463,7 @@ export class Interface {
     const debugState = document.querySelector('#debug-state');
     if (debugState) {
       const e = w.target;
-      debugState.textContent = `Time ${w.time.toFixed(2)} · HP ${Math.round(w.player.hp)} · ${w.player.state}\nParries ${w.stats.parries} / Perfect ${w.stats.perfects}\n${e ? `${e.def.id}: ${e.state} ${Math.max(0, w.time - e.stateAt).toFixed(2)} / ${e.strike.windup.toFixed(2)} ${e.strike.kind}` : 'No opponent'}\nCamera ${w.presentation.mode} · ${w.presentation.fps} FPS\n${w.presentation.drawCalls} calls · ${Math.round(w.presentation.triangles / 1000)}k triangles`;
+      debugState.textContent = `Time ${w.time.toFixed(2)} · HP ${Math.round(w.player.hp)} · ${w.player.state}\nParries ${w.stats.parries} / Perfect ${w.stats.perfects} · Empty ${w.player.emptyParries}\n${e ? `${e.def.id}: ${e.state} ${Math.max(0, w.time - e.stateAt).toFixed(2)} / ${e.strike.windup.toFixed(2)} ${e.strike.kind}` : 'No opponent'}\n${w.lab.animationName} @ ${w.lab.normalized.toFixed(2)}\nActive ${w.lab.hitWindow} · root ${w.lab.rootMotion.toFixed(2)}\nParryable ${e && ['slash', 'thrust'].includes(e.strike.kind) ? 'yes' : 'no (greatblade can perfect smash)'}\nReservations ${w.threats.reservations.map((r) => `${r.enemy}@${r.at.toFixed(2)}`).join(', ')}\nCamera ${w.presentation.mode} · ${w.presentation.fps} FPS\n${w.presentation.drawCalls} calls · ${Math.round(w.presentation.triangles / 1000)}k triangles`;
     }
   }
   private updateSound(): void {
@@ -486,6 +486,24 @@ export class Interface {
     panel.className = 'debug-panel';
     panel.innerHTML = `<summary>QA tools</summary><label>Invincible <input type="checkbox" id="debug-god"/></label><label>Enemy <select id="debug-enemy">${ENEMIES.map((e) => `<option value="${e.id}">${e.name}</option>`).join('')}</select></label><button id="debug-spawn">Spawn encounter</button><label>Weapon <select id="debug-weapon">${WEAPONS.map((w) => `<option value="${w.id}">${w.name}</option>`).join('')}</select></label><label>Depth <input id="debug-depth" type="number" min="1" max="10000" value="1"/></label><button id="debug-jump">Jump depth</button><button id="debug-heal">Restore vitality / Focus</button><button id="debug-loot">Open relic choice</button><button id="debug-break">Break nearest guard</button><label>Relic <select id="debug-relic">${RELICS.map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select></label><button id="debug-add">Add relic</button>`;
     document.body.append(panel);
+    panel.querySelector('summary')!.textContent = 'Combat laboratory';
+    panel.insertAdjacentHTML(
+      'beforeend',
+      `<label>Enemy count <input id="lab-count" type="number" min="1" max="3" value="1"/></label>
+      <label>Support <select id="lab-support"><option value="same">Same archetype</option>${ENEMIES.filter(
+        (e) => e.id !== 'boss',
+      )
+        .map((e) => `<option value="${e.id}">${e.name}</option>`)
+        .join('')}</select></label>
+      <label>Elite <select id="lab-elite"><option value="none">None</option><option>Patient</option><option>Relentless</option><option>Armored</option></select></label>
+      <label>Biome <select id="lab-biome">${BIOMES.map((b, i) => `<option value="${i}">${b.short}</option>`).join('')}</select></label>
+      <label>Pattern <select id="lab-pattern"><option value="-1">Adaptive</option><option value="0">Sequence 1</option><option value="1">Sequence 2</option><option value="2">Sequence 3</option><option value="3">Sequence 4</option></select></label>
+      <label>Camera <select id="lab-camera"><option value="auto">Automatic</option><option value="exploration">Exploration</option><option value="combat-wide">Combat wide</option><option value="duel">Duel</option><option value="boss">Boss</option></select></label>
+      <label>Clip <select id="lab-clip">${['live', 'slash', 'thrust', 'sweep', 'smash', 'grab', 'feint', 'finisher'].map((c) => `<option>${c}</option>`).join('')}</select></label>
+      <label>Freeze / scrub <input id="lab-freeze" type="checkbox"/></label><label>Clip time <input id="lab-scrub" type="range" min="0" max="1" step="0.01" value="0"/></label>
+      <label>Step amount <select id="lab-step-size"><option value="0.008333333333333333">One frame</option><option value="0.05">50 ms</option><option value="0.1">100 ms</option><option value="0.5">500 ms</option></select></label>
+      <button id="lab-step">Advance simulation</button><button id="lab-phase">Reveal boss phase II</button>`,
+    );
     panel.title = 'F2 toggles QA tools';
     document.addEventListener('keydown', (event) => {
       if (event.key === 'F2') {
@@ -494,6 +512,31 @@ export class Interface {
       }
     });
     const w = this.world;
+    const value = (id: string) =>
+      (panel.querySelector('#' + id) as HTMLInputElement | HTMLSelectElement).value;
+    panel
+      .querySelector('#lab-camera')!
+      .addEventListener('change', () => (w.lab.camera = value('lab-camera')));
+    panel
+      .querySelector('#lab-clip')!
+      .addEventListener('change', () => (w.lab.clip = value('lab-clip')));
+    panel
+      .querySelector('#lab-scrub')!
+      .addEventListener('input', () => (w.lab.clipTime = Number(value('lab-scrub'))));
+    panel.querySelector('#lab-freeze')!.addEventListener('change', (event) => {
+      w.lab.freeze = (event.target as HTMLInputElement).checked;
+      w.timeScale = w.lab.freeze ? 0 : Number(value('debug-speed'));
+    });
+    panel.querySelector('#lab-step')!.addEventListener('click', () => {
+      const frames = Math.round(Number(value('lab-step-size')) * 120);
+      for (let i = 0; i < frames; i++) w.update(1 / 120);
+      this.update();
+    });
+    panel.querySelector('#lab-phase')!.addEventListener('click', () => {
+      const boss = w.alive.find((e) => e.def.id === 'boss');
+      if (boss) boss.hp = boss.maxHp * 0.47;
+      w.update(1 / 120);
+    });
     panel.insertAdjacentHTML(
       'beforeend',
       '<label>Area <input id="debug-room" type="number" min="0" max="30" value="0"/></label><button id="debug-enter-room">Enter area</button><button id="debug-graph">Generation graph</button><label>Seed <input id="debug-new-seed" value="V02-BASELINE"/></label><button id="debug-regenerate">Regenerate seed</button>',
@@ -569,12 +612,15 @@ export class Interface {
     });
     panel.querySelector('#debug-spawn')!.addEventListener('click', () => {
       this.close();
-      w.mode = 'playing';
-      w.enemies = [
-        w.spawnEnemy((panel.querySelector('#debug-enemy') as HTMLSelectElement).value, 0),
-      ];
-      w.room.cleared = false;
-      w.clearAt = 0;
+      w.configureLab({
+        enemy: value('debug-enemy'),
+        support: value('lab-support'),
+        count: Number(value('lab-count')),
+        elite: value('lab-elite'),
+        depth: Number(value('debug-depth')),
+        biome: Number(value('lab-biome')),
+        pattern: Number(value('lab-pattern')),
+      });
     });
     panel.querySelector('#debug-jump')!.addEventListener('click', () => {
       const depth = Number((panel.querySelector('#debug-depth') as HTMLInputElement).value);

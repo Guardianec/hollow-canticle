@@ -1,10 +1,10 @@
-# Hollow Canticle — v0.2.0
+# Hollow Canticle - v0.3.0 review build
 
 A procedural action dungeon crawler about reading a blade, breaking a guard, and keeping an oath.
 
-**v0.2 replaces the flat room board with a navigable, layered WebGL dungeon and a low-angle cinematic duel view.** The existing precision-combat simulation remains authoritative.
+**v0.3 adds character proportions and stances, sampled combat animation, overlapping enemy pressure, and a new Saint phase-two mechanic to the existing WebGL dungeon.** Combat remains fixed-step and authoritative. This is a review build; full-run human balance sign-off remains outstanding.
 
-![v0.2 exploration](docs/screenshots/v02/exploration-after.jpg)
+![v0.3 ruins exploration](docs/screenshots/v03/exploration-ruins.jpg)
 
 ## Play
 
@@ -29,7 +29,7 @@ Production files are in `dist/`. Everything runs as a static site, including fon
 original stone texture, local saves, and synthesized audio. There is no backend,
 account, analytics service, or runtime third-party asset request.
 
-## The visual overhaul
+## Combat personality
 
 - An angled exploration camera follows the player through raised platforms,
   bridges, stairs, ruined cloisters, courtyards, libraries, and chasm crossings.
@@ -37,16 +37,24 @@ account, analytics service, or runtime third-party asset request.
   banners, chains, foliage, and fog establish several visible depth layers.
 - Moonlight, six nearby torch lights, contact shadows, localized impact light, and
   restrained bloom contrast warm light with cool unlit stone.
-- Significant single opponents trigger a low, over-the-shoulder camera. Articulated
-  characters reveal combat detail; their simulation coordinates remain unchanged.
-- Guards recoil, weapons sweep through distinct trails, perfect parries create a
-  radial metal burst, and finishers hold a closer camera before returning to exploration.
-- Groups and minor opponents keep a broader overview. Foreground architecture
-  uses a dithered visibility cutout when it would hide the player.
+- Every archetype has a body/stance profile. Elbows, knees, two-handed support grips,
+  cloth response, asymmetric armor, the clawed Beast, and the Saint's mantle/crown
+  transformation give the constructed character style more identity.
+- Sampled multijoint clips distinguish slash, thrust, sweep, smash, grab, and feint;
+  cut variants and four weapon executions blend with guard and locomotion.
+- Two enemies can prepare together. Immutable impact reservations preserve a defense
+  interval, with longer gaps around attacks that demand an evade.
+- Empty parries add guard strain and narrow the normal window. Oathkeeper now has a
+  220 ms normal window; the 85 ms perfect window and input buffer are retained.
+- Contextual mixups, authored pairs, behavioral elites, and deeper combo sequences add
+  pressure. Phase two of the Saint introduces a telegraphed delayed floor echo.
+- Groups use a cinematic combat-wide camera; bosses and executions have their own framing.
+  Weapon-specific trails, a blue-white deflection core, contact light, and biome impact
+  particles reinforce contact. Foreground architecture retains its visibility cutout.
 
-![v0.2 cinematic duel](docs/screenshots/v02/combat-after.jpg)
+![v0.3 perfect deflection](docs/screenshots/v03/perfect-parry.jpg)
 
-See the [before/after and reference comparison](docs/VISUAL_REVIEW.md).
+See the [v0.3 visual review](docs/VISUAL_REVIEW-v0.3.md).
 
 ## Dungeon generation
 
@@ -97,10 +105,12 @@ HTML menus and HUD remain independent of the 3D scene. The game uses no 3D physi
 
 `npm test` runs combat/save regression tests, 10,000 seeded floor checks, physical
 geometry and decoration validation, navigation tests, and camera-coordinate tests.
-See [architecture](docs/ARCHITECTURE.md), [QA](docs/QA.md), and [design](docs/GAME_DESIGN.md).
+See [architecture](docs/ARCHITECTURE.md), [v0.3 QA](docs/QA-v0.3.md), and [design](docs/GAME_DESIGN.md).
 
-Append `?debug` for enemy/weapon/relic tools, area and depth selection, live timing,
-frame-rate/triangle telemetry, generation graph, seed regeneration, and slow motion.
+Append `?debug` for the combat laboratory: enemy/support/count, elite, biome, depth,
+pattern, weapon and camera selection; invulnerability, slow motion, clip freezing/
+scrubbing, fixed-step advance, boss phase reveal, timing/reservation telemetry, and
+the existing generation/relic tools.
 
 ## Performance and accessibility
 
@@ -131,5 +141,5 @@ It does not reproduce the concept's painted character/detail fidelity. Navigatio
 2D; elevation is visual. Water reflections are approximations. There are no ranged
 enemies, controller/touch controls, multiplayer, merchants, or mid-run saves.
 
-See [v0.2.1 / v0.3 priorities](ROADMAP.md), [credits](CREDITS.md), and the [asset prompt](docs/ASSETS.md).
+See [review priorities](ROADMAP.md), [credits](CREDITS.md), and the [asset prompt](docs/ASSETS.md).
 Code and original project assets are MIT; dependencies and fonts retain their licenses.

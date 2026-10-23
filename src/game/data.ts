@@ -5,6 +5,8 @@ export interface Strike {
   recovery: number;
   damage: number;
   reach: number;
+  step?: number;
+  echo?: boolean;
 }
 const strike = (
   kind: AttackKind,
@@ -25,6 +27,7 @@ export interface EnemyDef {
   scale: number;
   affinity: number[];
   patterns: Strike[][];
+  phaseTwo?: Strike[][];
   reaction: 'block' | 'retreat' | 'armor' | 'counter';
 }
 export const ENEMIES: EnemyDef[] = [
@@ -42,7 +45,8 @@ export const ENEMIES: EnemyDef[] = [
     reaction: 'block',
     patterns: [
       [strike('slash', 0.7), strike('slash', 0.48), strike('thrust', 1.05)],
-      [strike('thrust', 0.85)],
+      [strike('thrust', 0.85), strike('slash', 0.63, 0.85)],
+      [strike('slash', 1.1, 0.2), strike('slash', 0.44, 0.25), strike('thrust', 0.8, 0.9)],
     ],
   },
   {
@@ -77,6 +81,8 @@ export const ENEMIES: EnemyDef[] = [
     patterns: [
       [strike('slash', 0.5, 0.25), strike('slash', 0.42, 0.3), strike('thrust', 1.2, 0.8)],
       [strike('feint', 0.45, 0.15), strike('slash', 0.8)],
+      [strike('slash', 1.45, 0.22), strike('slash', 0.42, 0.24), strike('thrust', 0.85, 0.85)],
+      [{ ...strike('thrust', 0.7, 0.9, 16, 125), step: 30 }],
     ],
   },
   {
@@ -91,7 +97,15 @@ export const ENEMIES: EnemyDef[] = [
     scale: 1.08,
     affinity: [0, 3],
     reaction: 'retreat',
-    patterns: [[strike('thrust', 0.95, 0.65, 16, 155), strike('sweep', 0.85, 0.8, 15, 145)]],
+    patterns: [
+      [strike('thrust', 0.95, 0.35, 16, 155), strike('sweep', 0.85, 0.8, 15, 145)],
+      [
+        { ...strike('thrust', 0.7, 0.25, 13, 155), step: 28 },
+        strike('thrust', 0.52, 0.85, 13, 155),
+      ],
+      [strike('feint', 0.6, 0.15), strike('sweep', 0.8, 0.8, 15, 145)],
+      [{ ...strike('thrust', 1.1, 0.85, 16, 170), step: -24 }],
+    ],
   },
   {
     id: 'assassin',
@@ -108,6 +122,11 @@ export const ENEMIES: EnemyDef[] = [
     patterns: [
       [strike('feint', 0.45, 0.2), strike('thrust', 0.6, 0.6, 14)],
       [strike('slash', 0.55, 0.25), strike('grab', 0.85, 0.9, 21)],
+      [
+        strike('slash', 0.5, 0.2),
+        strike('slash', 1.12, 0.2),
+        { ...strike('thrust', 0.55, 0.9), step: 30 },
+      ],
     ],
   },
   {
@@ -126,7 +145,8 @@ export const ENEMIES: EnemyDef[] = [
       [
         strike('slash', 0.75, 0.25),
         strike('slash', 0.6, 0.25),
-        strike('slash', 0.6, 0.3),
+        strike('slash', 1.12, 0.2),
+        strike('slash', 0.45, 0.2),
         strike('sweep', 0.95, 1),
       ],
       [strike('thrust', 1, 0.8, 18, 125)],
@@ -147,6 +167,7 @@ export const ENEMIES: EnemyDef[] = [
     patterns: [
       [strike('smash', 1.4, 0.25, 26, 115), strike('slash', 0.55, 1.15, 17, 110)],
       [strike('grab', 1.1, 1.2, 25, 95)],
+      [strike('sweep', 1.35, 0.25, 22, 130), { ...strike('grab', 0.65, 1.3, 18, 100), step: 26 }],
     ],
   },
   {
@@ -190,6 +211,23 @@ export const ENEMIES: EnemyDef[] = [
         strike('sweep', 1.05, 0.9, 18, 145),
       ],
     ],
+    phaseTwo: [
+      [
+        { ...strike('smash', 1.2, 0.85, 24, 145), echo: true },
+        strike('thrust', 0.72, 0.35, 18, 165),
+      ],
+      [
+        strike('feint', 0.58, 0.15),
+        { ...strike('thrust', 0.7, 0.25, 18, 175), step: 38 },
+        strike('slash', 0.5, 0.3, 16, 135),
+        strike('sweep', 1.1, 1.15, 19, 150),
+      ],
+      [
+        strike('slash', 1.35, 0.2, 18, 130),
+        strike('slash', 0.48, 0.25, 16, 130),
+        { ...strike('smash', 0.95, 1.1, 24, 145), echo: true },
+      ],
+    ],
   },
 ];
 
@@ -216,7 +254,7 @@ export const WEAPONS: Weapon[] = [
     reach: 112,
     damage: 13,
     pressure: 13,
-    parry: 0.24,
+    parry: 0.22,
   },
   {
     id: 'twins',

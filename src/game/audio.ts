@@ -91,7 +91,7 @@ export class Audio {
       this.airFilter.Q.value = biome === 2 ? 2 : 0.5;
     }
   }
-  play(cue: Cue): void {
+  play(cue: Cue, source = 'sword'): void {
     if (!this.context || !this.settings.master || !this.settings.sfx) return;
     const ctx = this.context;
     const frequencies: Record<Cue, number[]> = {
@@ -107,7 +107,24 @@ export class Audio {
       ui: [440],
       tell: this.phase ? [240, 480] : [300],
     };
+    const weight = ['brute', 'boss', 'great'].includes(source)
+      ? 0.55
+      : source === 'spear'
+        ? 1.35
+        : 1;
+    if (cue === 'tell')
+      frequencies.tell =
+        source === 'monk'
+          ? [440, 660, 881]
+          : source === 'boss'
+            ? [65, 130, 195]
+            : source === 'assassin'
+              ? [780, 1400]
+              : source === 'brute'
+                ? [65, 89]
+                : frequencies.tell;
     frequencies[cue].forEach((frequency, i) => {
+      frequency *= weight;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       const time = ctx.currentTime + (cue === 'clear' ? i * 0.09 : i * 0.012);

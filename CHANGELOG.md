@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 — 2026-10-23 (review build)
+
+- Added archetype body/stance profiles, articulated elbows and knees, support grips,
+  asymmetric armor, a clawed Beast, and the Saint's removable mantle and revealed crown.
+- Replaced Actor state-pose blocks with sampled multijoint clips, directional cuts,
+  distinct thrust/sweep/smash/grab/feint tracks, weapon executions, and transition blending.
+- Added overlapping preparations with immutable impact reservations and longer
+  spacing around evasive attacks. Enemies reposition and avoid striking through allies.
+- Added contextual mixups, deep-floor sequences, authored encounter pairs, and
+  behavioral Patient, Relentless, and Armored elite traits.
+- Added phase-two Saint sequences and a delayed floor echo that can be escaped.
+- Changed Oathkeeper's normal parry window from 240 to 220 ms; perfect timing remains
+  85 ms. Empty parries add guard damage and reduce the normal window, with reset on
+  a successful deflection or quiet interval. Input buffering remains.
+- Added weapon/type-specific trails, a blue-white parry core, biome-colored impact
+  debris/ripples, contact shadows, cool rim light, and contact-timed execution impacts.
+- Added combat-wide/boss/finisher framing and a combat lab with compositions,
+  elites, biome/depth/pattern selection, clip scrubbing, stepping, and timing telemetry.
+- Expanded regression coverage to 52 tests. Preserved dungeon/navigation, relics,
+  saves, and the v0.2 deployment. Human full-run balance sign-off remains outstanding.
+
 ## 0.2.0 — 2026-10-23
 
 - Replaced the flat Canvas room board with a WebGL 2.5D world: irregular raised

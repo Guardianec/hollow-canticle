@@ -1,0 +1,158 @@
+export type Rotation = [number, number, number];
+export interface BodyProfile {
+  chest: Rotation;
+  shoulder: number;
+  hip: number;
+  legs: number;
+  arms: number;
+  head: Rotation;
+  cape: Rotation;
+  lean: number;
+  turn: number;
+  crouch: number;
+  stride: number;
+  cadence: number;
+  guard: Rotation;
+  offguard: Rotation;
+}
+
+const knight: BodyProfile = {
+  chest: [1, 1, 1],
+  shoulder: 0.42,
+  hip: 0.94,
+  legs: 1,
+  arms: 1,
+  head: [0.85, 0.9, 0.85],
+  cape: [1, 1, 1],
+  lean: 0.04,
+  turn: 0.06,
+  crouch: 0,
+  stride: 0.36,
+  cadence: 8,
+  guard: [-0.55, -0.2, 0.15],
+  offguard: [-0.4, 0.2, -0.2],
+};
+export const BODY_PROFILES: Record<string, BodyProfile> = {
+  player: { ...knight, chest: [0.94, 1, 0.95], cape: [1.16, 1.1, 1], guard: [-0.65, -0.4, 0.12] },
+  warden: { ...knight, chest: [1.14, 1, 1.08], shoulder: 0.48, cape: [0.7, 0.7, 1] },
+  shield: {
+    ...knight,
+    chest: [1.25, 0.93, 1.2],
+    shoulder: 0.53,
+    hip: 0.88,
+    lean: 0.15,
+    crouch: 0.12,
+    turn: -0.22,
+    cadence: 6,
+    stride: 0.23,
+    guard: [-0.25, -0.7, 0.15],
+    offguard: [-1.05, -0.2, -0.15],
+  },
+  duelist: {
+    ...knight,
+    chest: [0.72, 1.06, 0.73],
+    shoulder: 0.32,
+    hip: 1.04,
+    legs: 1.12,
+    arms: 1.1,
+    head: [0.85, 1.06, 0.85],
+    cape: [0.7, 0.9, 1],
+    turn: -0.6,
+    lean: -0.04,
+    stride: 0.24,
+    cadence: 7,
+    guard: [-0.8, -0.9, -0.5],
+    offguard: [0.2, 0.5, -0.3],
+  },
+  spear: {
+    ...knight,
+    chest: [0.87, 1.03, 0.87],
+    shoulder: 0.37,
+    legs: 1.07,
+    hip: 1,
+    turn: -0.4,
+    guard: [-0.6, -0.5, -0.15],
+    offguard: [-1.1, 0.5, 0.3],
+    cape: [0.65, 0.9, 1],
+  },
+  assassin: {
+    ...knight,
+    chest: [0.8, 0.88, 0.8],
+    shoulder: 0.35,
+    hip: 0.85,
+    arms: 1.14,
+    legs: 0.94,
+    lean: 0.35,
+    crouch: 0.2,
+    turn: 0.32,
+    cadence: 15,
+    stride: 0.65,
+    cape: [0.52, 0.7, 1],
+    guard: [-0.6, -0.8, -0.8],
+    offguard: [-0.8, 0.9, 0.7],
+  },
+  monk: {
+    ...knight,
+    chest: [0.8, 1.15, 0.8],
+    shoulder: 0.34,
+    hip: 1.04,
+    legs: 1.1,
+    head: [0.85, 1.28, 0.85],
+    cape: [1.2, 1.3, 1],
+    lean: -0.06,
+    turn: 0,
+    cadence: 6,
+    stride: 0.18,
+    guard: [-1.15, -0.5, -0.6],
+    offguard: [-1.15, 0.5, 0.6],
+  },
+  brute: {
+    ...knight,
+    chest: [1.7, 1.23, 1.5],
+    shoulder: 0.69,
+    hip: 0.91,
+    legs: 0.96,
+    arms: 1.35,
+    head: [0.9, 0.85, 1],
+    cape: [1.3, 0.65, 1],
+    lean: 0.18,
+    crouch: 0.08,
+    cadence: 5,
+    stride: 0.28,
+    guard: [-0.28, -0.4, -0.2],
+    offguard: [-0.5, 0.2, 0.4],
+  },
+  beast: {
+    ...knight,
+    chest: [1.22, 0.85, 1.28],
+    shoulder: 0.5,
+    hip: 0.8,
+    legs: 0.95,
+    arms: 1.65,
+    head: [0.85, 0.7, 1.7],
+    cape: [0, 0, 0],
+    lean: 0.86,
+    crouch: 0.2,
+    turn: 0.1,
+    cadence: 11,
+    stride: 0.7,
+    guard: [0.4, -0.2, -0.4],
+    offguard: [0.15, 0.4, 0.4],
+  },
+  boss: {
+    ...knight,
+    chest: [1.12, 1.4, 0.9],
+    shoulder: 0.6,
+    hip: 1.12,
+    legs: 1.28,
+    arms: 1.22,
+    head: [0.7, 1.38, 0.8],
+    cape: [1.8, 1.5, 1],
+    lean: -0.06,
+    turn: -0.18,
+    cadence: 4.7,
+    stride: 0.25,
+    guard: [-1.2, -0.4, -0.2],
+    offguard: [-0.5, 0.5, 0.4],
+  },
+};

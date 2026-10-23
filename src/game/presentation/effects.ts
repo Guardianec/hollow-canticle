@@ -160,17 +160,18 @@ export class Effects {
     let flash = 0;
     for (const e of w.effects) {
       let mesh = this.active.get(e);
-      const t = 1 - e.life / e.maxLife;
+      const rawTime = 1 - e.life / e.maxLife;
+      const t = e.kind === 'finish' ? Math.max(0, (rawTime - 0.5) * 2) : rawTime;
       if (!mesh) {
         let geometry: T.BufferGeometry;
         if (e.kind === 'slash' || e.kind === 'finish') {
           const vertices: number[] = [],
             radius = e.kind === 'finish' ? 2.4 : 1.5 * e.scale,
-            spread = w.weapon.id === 'twins' ? 2.6 : w.weapon.id === 'great' ? 2.1 : 1.65;
+            spread = e.weapon === 'twins' ? 2.6 : e.weapon === 'great' ? 2.1 : 1.65;
           for (let i = 0; i < 24; i++) {
             const a = -spread / 2 + (i / 24) * spread,
               b = -spread / 2 + ((i + 1) / 24) * spread;
-            const inner = radius * (w.weapon.id === 'great' ? 0.88 : 0.95);
+            const inner = radius * (e.weapon === 'great' ? 0.8 : 0.97);
             vertices.push(
               Math.cos(a) * inner,
               0,
@@ -194,6 +195,12 @@ export class Effects {
           }
           geometry = new T.BufferGeometry();
           geometry.setAttribute('position', new T.Float32BufferAttribute(vertices, 3));
+          if (e.attackKind === 'thrust' || e.weapon === 'spear') {
+            geometry.dispose();
+            geometry = new T.ConeGeometry(0.045, Math.max(1.4, e.scale * 1.8), 5);
+            geometry.rotateZ(-Math.PI / 2);
+            geometry.translate(e.scale, 0, 0);
+          }
         } else geometry = new T.RingGeometry(0.78, 0.84, 64);
         mesh = new T.Mesh(
           geometry,
@@ -209,6 +216,14 @@ export class Effects {
         );
         this.root.add(mesh);
         this.active.set(e, mesh);
+        if (e.weapon === 'twins' && (e.kind === 'slash' || e.kind === 'finish')) {
+          const second = mesh.clone();
+          second.geometry = mesh.geometry.clone();
+          second.material = (mesh.material as T.Material).clone();
+          second.rotation.x = 0.55;
+          second.position.y = -0.22;
+          mesh.add(second);
+        }
         if (e.kind === 'perfect' || e.kind === 'finish') {
           const rays: number[] = [];
           for (let i = 0; i < 38; i++) {
@@ -253,30 +268,41 @@ export class Effects {
           );
           core.scale.set(1.1, 1.1, 1);
           mesh.add(core);
+          const metal = new T.Sprite(
+            new T.SpriteMaterial({
+              map: this.materialsGlow,
+              color: new T.Color(1.3, 2.3, 3.8),
+              transparent: true,
+              depthWrite: false,
+              blending: T.AdditiveBlending,
+              toneMapped: false,
+            }),
+          );
+          metal.scale.set(0.45, 0.16, 1);
+          mesh.add(metal);
         }
       }
       mesh.position.copy(globalPosition(w.room, e.x, e.y, e.kind === 'ring' ? 0.12 : 1.32));
+      mesh.visible = e.kind !== 'finish' || rawTime >= 0.5;
       (mesh.material as T.MeshBasicMaterial).opacity =
         (1 - t) * (e.kind === 'slash' ? 0.32 : e.kind === 'perfect' ? 0.2 : 0.65);
-      if (e.kind === 'perfect' && w.target) {
-        const contact = globalPosition(w.room, w.player.x, w.player.y).lerp(
-          globalPosition(w.room, w.target.x, w.target.y),
-          0.5,
-        );
-        contact.y += 1.3;
-        mesh.position.copy(contact);
-      }
       for (const child of mesh.children)
         if (child instanceof T.Mesh || child instanceof T.Sprite)
           (child.material as T.MeshBasicMaterial).opacity = Math.max(0, 1 - t * 1.7);
       if (e.kind === 'slash' || e.kind === 'finish') {
         mesh.rotation.set(0.12, e.angle + (-0.4 + t * 0.6), -0.17);
+        if (e.attackKind === 'thrust' || e.weapon === 'spear') mesh.rotation.set(0, -e.angle, 0);
+        if (e.attackKind === 'sweep') mesh.position.y -= 0.8;
+        if (e.attackKind === 'smash') mesh.rotation.z = Math.PI / 2;
         mesh.scale.setScalar(1 + t * 0.15);
+      } else if (e.kind === 'ring') {
+        mesh.rotation.set(-Math.PI / 2, 0, 0);
+        mesh.scale.setScalar(0.2 + t * e.scale * 1.8);
       } else {
         mesh.quaternion.copy(camera.quaternion);
         mesh.scale.setScalar(e.kind === 'perfect' ? 0.9 + t * 0.6 : 0.2 + t * e.scale * 1.8);
       }
-      if (e.kind === 'perfect' || e.kind === 'finish') {
+      if (e.kind === 'perfect' || (e.kind === 'finish' && mesh.visible)) {
         flash = Math.max(flash, (1 - t) * e.scale);
         this.light.position.copy(mesh.position);
       }
@@ -300,5 +326,13 @@ export class Effects {
         mat.opacity = (special ? 0.18 : 0.1) * (duel > 0.5 ? 0.7 : 1);
       }
     }
+  }
+  dispose(): void {
+    this.root.traverse((o) => {
+      if (o instanceof T.Mesh || o instanceof T.LineSegments) {
+        if (o.parent !== this.spikes) o.geometry.dispose();
+        if (o.parent !== this.spikes) (o.material as T.Material).dispose();
+      } else if (o instanceof T.Sprite) o.material.dispose();
+    });
   }
 }
