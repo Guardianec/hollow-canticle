@@ -1,0 +1,1207 @@
+import {
+  BALANCE,
+  BIOMES,
+  ENEMIES,
+  RELICS,
+  WEAPONS,
+  type EnemyDef,
+  type Relic,
+  type RelicEvent,
+  type Strike,
+  type Weapon,
+} from './data';
+import {
+  doorPosition,
+  makeFloor,
+  obstaclesFor,
+  type Floor,
+  type Obstacle,
+  type Room,
+} from './dungeon';
+import { finisherStyle, InputBuffer, posturePressure, resolveDefense, type Action } from './combat';
+import { normalizeSeed, Random } from './random';
+import { persist, type Save } from './save';
+import { Audio } from './audio';
+
+export type Mode = 'menu' | 'playing' | 'paused' | 'reward' | 'dead' | 'trained';
+export type PlayerState =
+  'idle' | 'attack' | 'parry' | 'dodge' | 'hurt' | 'stagger' | 'finisher' | 'dead';
+export interface Player {
+  x: number;
+  y: number;
+  facing: number;
+  hp: number;
+  posture: number;
+  focus: number;
+  state: PlayerState;
+  stateAt: number;
+  parryAt: number;
+  dodgeAt: number;
+  dodgeReady: number;
+  immunity: number;
+  counterUntil: number;
+  attackHit: boolean;
+  dx: number;
+  dy: number;
+}
+export interface Enemy {
+  id: number;
+  def: EnemyDef;
+  x: number;
+  y: number;
+  facing: number;
+  hp: number;
+  maxHp: number;
+  posture: number;
+  maxPosture: number;
+  state: 'idle' | 'tell' | 'active' | 'recover' | 'broken' | 'dead';
+  stateAt: number;
+  readyAt: number;
+  lastPressure: number;
+  pattern: number;
+  index: number;
+  strike: Strike;
+  phase: number;
+  burns: number;
+  blocks: number;
+}
+export interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+}
+export interface Effect {
+  x: number;
+  y: number;
+  angle: number;
+  life: number;
+  maxLife: number;
+  kind: 'slash' | 'ring' | 'perfect' | 'finish' | 'hurt';
+  color: string;
+  scale: number;
+}
+export interface Toast {
+  text: string;
+  sub: string;
+  until: number;
+  color: string;
+}
+export interface RunStats {
+  kills: number;
+  parries: number;
+  perfects: number;
+  streak: number;
+  bestStreak: number;
+  finishers: number;
+  damage: number;
+  rooms: number;
+  time: number;
+  dodges: number;
+  attacks: number;
+  bosses: number;
+}
+export interface WorldEvent {
+  type: 'reward' | 'death' | 'trained' | 'floor';
+}
+export const distance = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
+  Math.hypot(a.x - b.x, a.y - b.y);
+export const angleDifference = (a: number, b: number): number =>
+  Math.atan2(Math.sin(a - b), Math.cos(a - b));
+
+export class World {
+  mode: Mode = 'menu';
+  seed = 'THE-FIRST-CANDLE';
+  floor: Floor = makeFloor(this.seed, 1);
+  roomId = 0;
+  player!: Player;
+  enemies: Enemy[] = [];
+  obstacles: Obstacle[] = [];
+  weapon: Weapon = WEAPONS[0];
+  relics: Relic[] = [];
+  rewards: Relic[] = [];
+  time = 0;
+  visualTime = 0;
+  training = false;
+  trainingDone = new Set<string>();
+  stats!: RunStats;
+  buffer = new InputBuffer();
+  movement = { x: 0, y: 0 };
+  mouseAim?: { x: number; y: number };
+  particles: Particle[] = [];
+  effects: Effect[] = [];
+  toast?: Toast;
+  events: WorldEvent[] = [];
+  shake = 0;
+  flash = 0;
+  hitStop = 0;
+  roomRevision = 0;
+  clearAt = 0;
+  ward = 0;
+  hunger = 0;
+  bonusWindow = 0;
+  lastPerfect = false;
+  lastMoved = 0;
+  roomDamage = 0;
+  roomPerfects = 0;
+  debug = new URLSearchParams(location.search).has('debug');
+  invincible = false;
+  timeScale = 1;
+  audio: Audio;
+  private rng = new Random('effects');
+  private rewardRng = new Random('rewards');
+  private settled = false;
+  private attackToken = -1;
+
+  constructor(public save: Save) {
+    this.audio = new Audio(save.settings);
+    this.resetPlayer();
+    this.enterRoom(0);
+  }
+  get room(): Room {
+    return this.floor.rooms[this.roomId];
+  }
+  get alive(): Enemy[] {
+    return this.enemies.filter((e) => e.state !== 'dead');
+  }
+  get target(): Enemy | undefined {
+    return this.alive.sort((a, b) => distance(a, this.player) - distance(b, this.player))[0];
+  }
+  get combat(): boolean {
+    return this.alive.length > 0;
+  }
+  get prompt(): { text: string; sub: string; x: number; y: number } | undefined {
+    if (this.mode !== 'playing') return;
+    const p = this.player;
+    const broken = this.alive.find(
+      (e) => e.state === 'broken' && distance(e, p) < BALANCE.finisherRange,
+    );
+    if (broken) return { text: 'Deliver the final toll', sub: 'E  /  J', x: broken.x, y: broken.y };
+    if (this.combat) return;
+    if (
+      !this.room.claimed &&
+      distance(p, { x: 560, y: 365 }) < 110 &&
+      ['treasure', 'shrine', 'healing', 'secret', 'exit'].includes(this.room.kind)
+    ) {
+      const text =
+        this.room.kind === 'exit'
+          ? 'Descend into the dark'
+          : this.room.kind === 'healing'
+            ? 'Drink from the quiet well'
+            : this.room.kind === 'shrine'
+              ? 'Make an offering'
+              : 'Claim the forgotten relic';
+      return { text, sub: 'E  INTERACT', x: 560, y: 365 };
+    }
+    for (const id of this.room.links) {
+      const next = this.floor.rooms[id];
+      const pos = doorPosition(this.room, next);
+      if (distance(p, pos) < 115)
+        return {
+          text:
+            next.kind === 'secret' && !next.visited
+              ? 'A crack in the prayer'
+              : next.visited
+                ? next.name
+                : {
+                    combat: 'An armed presence',
+                    elite: 'A formidable presence',
+                    boss: 'A bell without a voice',
+                    treasure: 'A glint in the darkness',
+                    healing: 'The sound of water',
+                    shrine: 'A distant candle',
+                    hazard: 'An uneasy passage',
+                    exit: 'A stairway downward',
+                    secret: 'A faint whisper',
+                    start: 'The threshold',
+                  }[next.kind],
+          sub: 'E  ENTER',
+          ...pos,
+        };
+    }
+  }
+
+  private resetPlayer(): void {
+    this.player = {
+      x: 460,
+      y: 420,
+      facing: -0.3,
+      hp: BALANCE.playerHp,
+      posture: 0,
+      focus: 0,
+      state: 'idle',
+      stateAt: 0,
+      parryAt: -99,
+      dodgeAt: -99,
+      dodgeReady: 0,
+      immunity: 0,
+      counterUntil: 0,
+      attackHit: false,
+      dx: 1,
+      dy: 0,
+    };
+    this.stats = {
+      kills: 0,
+      parries: 0,
+      perfects: 0,
+      streak: 0,
+      bestStreak: 0,
+      finishers: 0,
+      damage: 0,
+      rooms: 0,
+      time: 0,
+      dodges: 0,
+      attacks: 0,
+      bosses: 0,
+    };
+  }
+  start(seed: string, weaponId: string, training = false): void {
+    this.seed = normalizeSeed(seed);
+    this.weapon = WEAPONS.find((w) => w.id === weaponId) || WEAPONS[0];
+    this.floor = makeFloor(this.seed, 1);
+    this.time = 0;
+    this.relics = [];
+    this.ward = 0;
+    this.hunger = 0;
+    this.bonusWindow = 0;
+    this.training = training;
+    this.trainingDone.clear();
+    this.settled = false;
+    this.events = [];
+    this.toast = undefined;
+    this.lastPerfect = false;
+    this.rewardRng = new Random(`${this.seed}:loot`);
+    this.resetPlayer();
+    this.buffer.clear();
+    this.mouseAim = undefined;
+    this.mode = 'playing';
+    if (training) {
+      this.floor.rooms[0].enemies = ['warden'];
+      this.floor.rooms[0].kind = 'combat';
+      this.floor.rooms[0].cleared = false;
+      this.floor.rooms[0].name = 'The Practice of Steel';
+    }
+    this.enterRoom(0);
+    this.audio.unlock();
+    this.announce(
+      training ? 'THE PRACTICE OF STEEL' : 'A NEW CANDLE IS LIT',
+      training
+        ? 'Your vitality cannot fall here. Learn at your own pace.'
+        : 'Find the stairway. Keep your oath.',
+      '#dcc89c',
+      4,
+    );
+  }
+
+  enterRoom(id: number, previous?: Room): void {
+    this.roomId = id;
+    this.room.visited = true;
+    this.roomRevision++;
+    this.effects = [];
+    this.particles = [];
+    this.attackToken = -1;
+    this.buffer.clear();
+    this.clearAt = 0;
+    this.roomDamage = 0;
+    this.roomPerfects = 0;
+    this.player.state = 'idle';
+    this.player.parryAt = -99;
+    this.player.dodgeAt = -99;
+    this.player.immunity = this.time + 0.8;
+    if (previous) {
+      const pos = doorPosition(this.room, previous);
+      this.player.x = pos.x === 80 ? 160 : pos.x === 1040 ? 960 : 560;
+      this.player.y = pos.y === 86 ? 170 : pos.y === 674 ? 600 : 380;
+    } else {
+      this.player.x = 455;
+      this.player.y = 430;
+    }
+    this.obstacles = obstaclesFor(this.room, this.floor.biome);
+    this.enemies = this.room.cleared
+      ? []
+      : this.room.enemies.map((id, index) => this.spawnEnemy(id, index));
+    this.emit('enter');
+    this.audio.ambience(this.combat, this.mode !== 'playing');
+    if (previous)
+      this.announce(
+        this.room.name.toUpperCase(),
+        this.room.modifier === 'Quiet'
+          ? BIOMES[this.floor.biome].label
+          : `${this.room.modifier.toUpperCase()} CHAMBER`,
+        '#dac69d',
+        2.4,
+      );
+  }
+
+  spawnEnemy(id: string, index = this.enemies.length): Enemy {
+    const def = ENEMIES.find((e) => e.id === id) || ENEMIES[0];
+    const elite = this.room.kind === 'elite';
+    const hp = def.hp * (elite ? 1.2 : 1);
+    return {
+      id: index,
+      def,
+      x: 735 + index * 100,
+      y: 380 + index * 85,
+      facing: Math.PI,
+      hp,
+      maxHp: hp,
+      posture: 0,
+      maxPosture: def.posture * (elite && this.room.elite === 'Armored' ? 1.3 : elite ? 1.12 : 1),
+      state: 'idle',
+      stateAt: this.time,
+      readyAt: this.time + (this.training ? 2.2 : 1.5) + index * 0.6,
+      lastPressure: this.time,
+      pattern: 0,
+      index: 0,
+      strike: def.patterns[0][0],
+      phase: 1,
+      burns: 0,
+      blocks: 0,
+    };
+  }
+
+  input(action: Action): void {
+    if (this.mode === 'playing') this.buffer.push(action, this.time);
+  }
+  pause(): void {
+    if (this.mode === 'playing') {
+      this.mode = 'paused';
+      this.buffer.clear();
+      this.movement = { x: 0, y: 0 };
+    } else if (this.mode === 'paused') this.mode = 'playing';
+    this.audio.ambience(this.combat, this.mode !== 'playing');
+  }
+
+  update(realDt: number): void {
+    this.visualTime += realDt;
+    for (const particle of this.particles) {
+      particle.life -= realDt;
+      particle.x += particle.vx * realDt;
+      particle.y += particle.vy * realDt;
+      particle.vy += 90 * realDt;
+      particle.vx *= Math.exp(-realDt * 2);
+    }
+    this.particles = this.particles.filter((p) => p.life > 0).slice(-260);
+    for (const effect of this.effects) effect.life -= realDt;
+    this.effects = this.effects.filter((e) => e.life > 0);
+    this.shake = Math.max(0, this.shake - realDt * 25);
+    this.flash = Math.max(0, this.flash - realDt * 3);
+    if (this.mode !== 'playing') return;
+    if (this.hitStop > 0) {
+      this.hitStop -= realDt;
+      return;
+    }
+    const dt = Math.min(realDt, 0.034);
+    this.time += dt;
+    this.stats.time += dt;
+    this.updatePlayer(dt);
+    for (const enemy of this.enemies) this.updateEnemy(enemy, dt);
+    this.separateEnemies();
+    this.updateHazards();
+    if (!this.combat && !this.room.cleared) this.clearRoom();
+    if (this.clearAt && this.time > this.clearAt) {
+      this.clearAt = 0;
+      if (this.training) {
+        this.enemies = [this.spawnEnemy('warden', 0)];
+        this.room.cleared = false;
+      } else this.openReward();
+    }
+    this.player.focus = Math.max(0, Math.min(100, this.player.focus));
+    this.player.hp = Math.max(0, Math.min(BALANCE.playerHp, this.player.hp));
+    if (this.training) {
+      this.player.hp = Math.max(40, this.player.hp);
+      if (this.trainingDone.size >= 6) {
+        this.mode = 'trained';
+        this.save.tutorial = true;
+        persist(this.save);
+        this.events.push({ type: 'trained' });
+      }
+    } else if (this.player.hp <= 0 && this.mode === 'playing') this.die();
+  }
+
+  private updatePlayer(dt: number): void {
+    const p = this.player;
+    const age = this.time - p.stateAt;
+    if (p.state === 'attack' && !p.attackHit && age >= this.weapon.startup) {
+      p.attackHit = true;
+      this.attack();
+    }
+    const durations: Record<PlayerState, number> = {
+      idle: Infinity,
+      attack: this.weapon.startup + this.weapon.recovery,
+      parry: this.weapon.parry + 0.23,
+      dodge: BALANCE.dodgeTime,
+      hurt: 0.22,
+      stagger: 0.7,
+      finisher: 0.7,
+      dead: Infinity,
+    };
+    if (age >= durations[p.state]) p.state = 'idle';
+    const action = this.buffer.consume(this.time, (a) => {
+      if (a === 'interact') return p.state === 'idle' || p.state === 'parry';
+      if (a === 'dodge')
+        return (
+          this.time >= p.dodgeReady &&
+          (p.state === 'idle' || p.state === 'parry' || (p.state === 'attack' && p.attackHit))
+        );
+      if (a === 'parry')
+        return (
+          p.state === 'idle' ||
+          (p.state === 'attack' && age >= this.weapon.startup + this.weapon.recovery - 0.1)
+        );
+      return p.state === 'idle';
+    });
+    if (action) this.perform(action);
+    if (p.state === 'dodge') this.move(p, p.dx * 610 * dt, p.dy * 610 * dt);
+    else if (['idle', 'parry', 'attack'].includes(p.state)) {
+      let { x, y } = this.movement;
+      const len = Math.hypot(x, y);
+      if (len) {
+        x /= len;
+        y /= len;
+        this.lastMoved = this.time;
+        let speed = BALANCE.speed * (p.state === 'attack' ? 0.34 : p.state === 'parry' ? 0.55 : 1);
+        if ((this.floor.biome === 1 || this.floor.hybrid === 1) && this.inZone(p, 'water'))
+          speed *= 0.65;
+        this.move(p, x * speed * dt, y * speed * dt);
+        if (p.state === 'idle') p.facing = Math.atan2(y, x);
+        this.trainingDone.add('move');
+      }
+      if (this.mouseAim && p.state === 'idle')
+        p.facing = Math.atan2(this.mouseAim.y - p.y, this.mouseAim.x - p.x);
+    }
+    if (p.posture > 0 && p.state === 'idle')
+      p.posture = Math.max(0, p.posture - BALANCE.postureRecovery * dt);
+    if (p.focus >= 68 && p.state === 'idle' && this.target && distance(p, this.target) < 165)
+      p.counterUntil = Math.max(p.counterUntil, this.time + 0.08);
+  }
+
+  private perform(action: Action): void {
+    const p = this.player;
+    if (action === 'interact') {
+      this.interact();
+      return;
+    }
+    if (action === 'technique') {
+      if (p.focus < 100) {
+        this.announce(
+          'THE CANTICLE IS QUIET',
+          'Build 100 Focus to release a resonant strike.',
+          '#b9c4c3',
+          1.8,
+        );
+        return;
+      }
+      p.focus = 0;
+      p.immunity = this.time + 0.5;
+      for (const e of this.alive) if (distance(p, e) < 250) this.pressure(e, 65);
+      this.impact(p.x, p.y, '#b8e8ef', 55, 'perfect', 2);
+      this.audio.play('break');
+      this.announce('RESONANCE', 'The oath answers.', '#c0ebeb', 1.2);
+      return;
+    }
+    if (
+      action === 'attack' &&
+      this.alive.some((e) => e.state === 'broken' && distance(p, e) < BALANCE.finisherRange)
+    ) {
+      this.finish(
+        this.alive.find((e) => e.state === 'broken' && distance(p, e) < BALANCE.finisherRange)!,
+      );
+      return;
+    }
+    p.state = action;
+    p.stateAt = this.time;
+    if (action === 'attack') {
+      p.attackHit = false;
+      const target = this.chooseTarget();
+      if (target) p.facing = Math.atan2(target.y - p.y, target.x - p.x);
+      this.audio.play('attack');
+      this.stats.attacks++;
+      this.trainingDone.add('attack');
+    }
+    if (action === 'parry') {
+      p.parryAt = this.time;
+      this.effect(p.x, p.y, 'ring', '#b9e1de', 0.32, 0.55);
+    }
+    if (action === 'dodge') {
+      p.dodgeAt = this.time;
+      p.dodgeReady = this.time + BALANCE.dodgeCooldown;
+      const length = Math.hypot(this.movement.x, this.movement.y);
+      p.dx = length ? this.movement.x / length : -Math.cos(p.facing);
+      p.dy = length ? this.movement.y / length : -Math.sin(p.facing);
+      this.stats.dodges++;
+      this.trainingDone.add('dodge');
+      this.audio.play('attack');
+    }
+  }
+
+  private chooseTarget(): Enemy | undefined {
+    const p = this.player;
+    return this.alive
+      .filter((e) => distance(p, e) < this.weapon.reach + 80)
+      .sort((a, b) => {
+        const score = (e: Enemy) =>
+          distance(p, e) +
+          Math.abs(angleDifference(Math.atan2(e.y - p.y, e.x - p.x), p.facing)) *
+            (this.mouseAim ? 90 : 20);
+        return score(a) - score(b);
+      })[0];
+  }
+  private attack(): void {
+    const p = this.player;
+    const counter = this.time < p.counterUntil;
+    this.effect(
+      p.x,
+      p.y,
+      'slash',
+      counter ? '#f6d7a2' : '#bcd5dc',
+      0.28,
+      this.weapon.reach / 90,
+      p.facing,
+    );
+    this.move(
+      p,
+      Math.cos(p.facing) * (this.weapon.id === 'spear' ? 16 : 10),
+      Math.sin(p.facing) * 10,
+    );
+    for (const enemy of this.alive) {
+      if (
+        enemy.state === 'broken' ||
+        distance(p, enemy) > this.weapon.reach + 22 ||
+        Math.abs(angleDifference(Math.atan2(enemy.y - p.y, enemy.x - p.x), p.facing)) > 1.15
+      )
+        continue;
+      const block = enemy.def.reaction === 'block' && enemy.state === 'idle' && !counter;
+      enemy.hp -= (this.weapon.damage + this.hunger) * (block ? 0.18 : counter ? 1.4 : 1);
+      this.pressure(
+        enemy,
+        posturePressure(this.weapon.pressure, p.focus, counter, this.weapon.id === 'spear'),
+      );
+      this.impact(enemy.x, enemy.y - 16, block ? '#e8bc79' : '#c5d6d7', 11, 'ring', 0.45);
+      this.audio.play(block ? 'parry' : 'hit');
+      if (block) {
+        enemy.blocks++;
+        if (enemy.blocks >= 3) {
+          enemy.index = 0;
+          enemy.strike = { kind: 'grab', windup: 0.8, recovery: 0.9, damage: 15, reach: 95 };
+          this.beginTell(enemy);
+          enemy.blocks = 0;
+        }
+      } else if (enemy.state === 'idle' || enemy.state === 'recover') {
+        if (enemy.def.reaction === 'retreat')
+          this.move(enemy, Math.cos(p.facing) * 45, Math.sin(p.facing) * 45);
+        enemy.readyAt = this.time + (enemy.def.reaction === 'counter' ? 0.12 : 0.4);
+      }
+      if (this.weapon.id === 'twins') p.focus += 3;
+      if (counter) {
+        this.emit('counter', enemy);
+        p.counterUntil = 0;
+      }
+      this.emit('attack', enemy);
+      if (enemy.hp <= 0) this.breakEnemy(enemy);
+    }
+  }
+
+  private updateEnemy(e: Enemy, dt: number): void {
+    if (e.state === 'dead') return;
+    const p = this.player;
+    const age = this.time - e.stateAt;
+    const dist = distance(e, p);
+    const isBoss = e.def.id === 'boss';
+    if (isBoss && e.phase === 1 && e.hp < e.maxHp * 0.48 && e.state !== 'broken') this.phaseBoss(e);
+    if (e.burns > this.time) this.pressure(e, 5 * dt);
+    if (e.state === 'broken') {
+      if (age > 5) {
+        e.state = 'recover';
+        e.stateAt = this.time;
+        e.posture = e.maxPosture * 0.4;
+        e.hp = Math.max(e.hp, e.maxHp * 0.2);
+        e.readyAt = this.time + 1;
+      }
+      return;
+    }
+    if (e.state === 'tell') {
+      if (age < e.strike.windup - 0.2) e.facing = Math.atan2(p.y - e.y, p.x - e.x);
+      if (e.strike.kind === 'feint' && age >= e.strike.windup) {
+        e.state = 'recover';
+        e.stateAt = this.time;
+        e.readyAt = this.time + 0.15;
+        this.attackToken = -1;
+        return;
+      }
+      if (age >= e.strike.windup) {
+        e.state = 'active';
+        e.stateAt = this.time;
+        if (dist < e.strike.reach + 60)
+          this.move(e, Math.cos(e.facing) * 18, Math.sin(e.facing) * 18);
+        this.effect(
+          e.x,
+          e.y,
+          'slash',
+          ['sweep', 'grab', 'smash'].includes(e.strike.kind) ? '#e48b79' : '#e6b679',
+          0.28,
+          e.strike.reach / 90,
+          e.facing,
+        );
+        this.enemyHit(e);
+      }
+      return;
+    }
+    if (e.state === 'active') {
+      if (age > 0.14) {
+        e.state = 'recover';
+        e.stateAt = this.time;
+        e.readyAt = this.time + e.strike.recovery;
+        this.attackToken = -1;
+      }
+      return;
+    }
+    if (e.state === 'recover') {
+      if (this.time >= e.readyAt) {
+        e.state = 'idle';
+        e.stateAt = this.time;
+      }
+      return;
+    }
+    if (this.time - e.lastPressure > (dist < 180 ? 2.3 : 1.1))
+      e.posture = Math.max(0, e.posture - dt * (dist < 180 ? 5 : 16) * (0.35 + e.hp / e.maxHp));
+    e.facing = Math.atan2(p.y - e.y, p.x - e.x);
+    const preferred = e.def.id === 'spear' ? 125 : isBoss ? 110 : 78;
+    const speed =
+      e.def.speed * (this.room.modifier === 'Resonant' ? 1.12 : 1) * (e.phase === 2 ? 1.15 : 1);
+    if (dist > preferred) {
+      const orbit = this.attackToken !== -1 && this.attackToken !== e.id;
+      const angle = e.facing + (orbit ? 0.9 : 0);
+      if (!orbit || dist > 135)
+        this.move(e, Math.cos(angle) * speed * dt, Math.sin(angle) * speed * dt);
+    }
+    if (
+      dist < e.strike.reach + 25 &&
+      this.time >= e.readyAt &&
+      this.attackToken === -1 &&
+      p.state !== 'finisher'
+    ) {
+      const patterns = e.def.patterns;
+      const pattern = patterns[e.pattern % patterns.length];
+      const next = pattern[e.index % pattern.length];
+      const haste = Math.max(0.82, 1 - (this.floor.depth - 1) * 0.012) * (e.phase === 2 ? 0.82 : 1);
+      const patience = this.room.kind === 'elite' && this.room.elite === 'Patient' ? 1.22 : 1;
+      e.strike = {
+        ...next,
+        windup: next.windup * haste * patience,
+        recovery:
+          next.recovery *
+          (this.room.kind === 'elite' && this.room.elite === 'Relentless' ? 0.65 : 1),
+      };
+      e.index++;
+      if (e.index >= pattern.length) {
+        e.index = 0;
+        e.pattern++;
+      }
+      this.beginTell(e);
+    }
+  }
+
+  private beginTell(e: Enemy): void {
+    if (this.attackToken !== -1 && this.attackToken !== e.id) return;
+    e.state = 'tell';
+    e.stateAt = this.time;
+    this.attackToken = e.id;
+    if (this.room.modifier !== 'Silence') this.audio.play('tell');
+  }
+  private enemyHit(e: Enemy): void {
+    const p = this.player;
+    if (this.time < p.immunity || p.state === 'finisher') return;
+    const facing = Math.atan2(p.y - e.y, p.x - e.x);
+    if (Math.abs(angleDifference(facing, e.facing)) > (e.strike.kind === 'sweep' ? 2.6 : 1.2))
+      return;
+    const defense = resolveDefense({
+      strike: e.strike,
+      distance: distance(e, p),
+      parryAge: this.time - p.parryAt,
+      dodgeAge: this.time - p.dodgeAt,
+      weapon: this.weapon,
+      assist: this.save.settings.assist || this.training,
+      bonusWindow: this.bonusWindow,
+    });
+    if (defense === 'miss') return;
+    if (defense === 'dodge') {
+      this.emit('dodge', e);
+      p.focus += 9;
+      this.announce('GHOST STEP', 'A breath between the blades.', '#abc9d1', 0.8);
+      return;
+    }
+    if (defense === 'parry' || defense === 'perfect') {
+      const perfect = defense === 'perfect';
+      this.bonusWindow = 0;
+      this.lastPerfect = perfect;
+      this.stats.parries++;
+      p.focus += perfect ? 18 : 9;
+      p.posture = Math.max(0, p.posture - (perfect ? 20 : 8));
+      p.counterUntil = this.time + 0.8;
+      p.state = 'idle';
+      if (perfect) {
+        this.stats.perfects++;
+        this.stats.streak++;
+        this.roomPerfects++;
+        this.stats.bestStreak = Math.max(this.stats.bestStreak, this.stats.streak);
+        this.trainingDone.add('perfect');
+      } else this.stats.streak = 0;
+      this.trainingDone.add('parry');
+      this.impact(
+        (p.x + e.x) / 2,
+        (p.y + e.y) / 2 - 18,
+        perfect ? '#fff1c4' : '#badfe5',
+        perfect ? 44 : 20,
+        perfect ? 'perfect' : 'ring',
+        perfect ? 1.3 : 0.7,
+      );
+      this.hitStop = this.save.settings.reducedMotion ? 0.025 : perfect ? 0.065 : 0.032;
+      this.audio.play(perfect ? 'perfect' : 'parry');
+      this.announce(
+        perfect ? 'PERFECT DEFLECTION' : 'DEFLECTED',
+        perfect ? 'Their guard fractures. Press the advantage.' : 'Strike now to counter.',
+        perfect ? '#f2d7a1' : '#b9d8df',
+        0.85,
+      );
+      this.pressure(
+        e,
+        posturePressure(perfect ? BALANCE.perfectPressure : BALANCE.parryPressure, p.focus, false),
+      );
+      this.emit('parry', e);
+      if (perfect) this.emit('perfect', e);
+    } else {
+      this.hurt(
+        e.strike.damage,
+        e.strike.kind === 'sweep'
+          ? 'SWEEP — EVADE WITH SPACE'
+          : e.strike.kind === 'grab'
+            ? 'GRAB — DODGE AWAY'
+            : e.strike.kind === 'smash'
+              ? 'HEAVY SMASH — DODGE THE IMPACT'
+              : 'A LATE GUARD',
+        e,
+      );
+    }
+  }
+
+  private hurt(amount: number, reason: string, enemy?: Enemy): void {
+    const p = this.player;
+    if (this.invincible || this.time < p.immunity) return;
+    const damage = Math.max(0, amount - this.ward);
+    this.ward = 0;
+    p.hp -= damage;
+    this.stats.damage += damage;
+    this.roomDamage += damage;
+    p.posture += amount * 1.7;
+    p.focus = this.relics.some((r) => r.id === 'glass') ? 0 : Math.max(0, p.focus - 28);
+    this.hunger = 0;
+    this.stats.streak = 0;
+    p.state = p.posture >= 100 ? 'stagger' : 'hurt';
+    p.stateAt = this.time;
+    if (p.posture >= 100) p.posture = 0;
+    p.parryAt = -99;
+    p.immunity = this.time + 0.48;
+    if (enemy) this.move(p, Math.cos(enemy.facing) * 24, Math.sin(enemy.facing) * 24);
+    this.impact(p.x, p.y - 18, '#df8e7a', 15, 'hurt', 0.8);
+    this.audio.play('hurt');
+    this.announce(
+      reason,
+      enemy
+        ? `${enemy.def.name} · ${Math.round(damage)} vitality lost`
+        : 'Watch the ground before it awakens.',
+      '#e1a28b',
+      1.6,
+    );
+    this.emit('hurt', enemy);
+  }
+
+  pressure(e: Enemy, amount: number): void {
+    if (e.state === 'dead' || e.state === 'broken') return;
+    e.posture += amount;
+    e.lastPressure = this.time;
+    if (e.posture >= e.maxPosture) this.breakEnemy(e);
+  }
+  private breakEnemy(e: Enemy): void {
+    if (e.state === 'broken' || e.state === 'dead') return;
+    e.posture = e.maxPosture;
+    e.state = 'broken';
+    e.stateAt = this.time;
+    if (this.attackToken === e.id) this.attackToken = -1;
+    this.impact(e.x, e.y - 20, '#f5cd86', 35, 'perfect', 1.6);
+    this.audio.play('break');
+    this.hitStop = 0.08;
+    this.announce(
+      'GUARD BROKEN',
+      'Close the distance. E to deliver the final toll.',
+      '#f0cf93',
+      2.5,
+    );
+    this.emit('break', e);
+  }
+  private finish(e: Enemy): void {
+    const p = this.player;
+    p.state = 'finisher';
+    p.stateAt = this.time;
+    p.immunity = this.time + 1.1;
+    p.facing = Math.atan2(e.y - p.y, e.x - p.x);
+    const offset = this.weapon.id === 'spear' ? 75 : 42;
+    p.x = e.x - Math.cos(p.facing) * offset;
+    p.y = e.y - Math.sin(p.facing) * offset;
+    this.move(p, 0, 0);
+    const style = finisherStyle(this.weapon.id, e.def.id, this.lastPerfect);
+    this.effect(
+      e.x,
+      e.y - 16,
+      'finish',
+      '#f8d39a',
+      0.8,
+      this.weapon.id === 'great' ? 2 : 1.5,
+      p.facing,
+    );
+    this.impact(e.x, e.y - 16, '#f9da9f', 65, 'perfect', 2.3);
+    this.audio.play('finisher');
+    this.hitStop = this.save.settings.reducedMotion ? 0.04 : 0.12;
+    this.stats.finishers++;
+    this.trainingDone.add('finisher');
+    this.emit('finisher', e);
+    if (e.def.id === 'boss' && e.phase === 1) {
+      this.phaseBoss(e);
+      e.hp = e.maxHp * 0.48;
+      e.posture = 0;
+      this.announce('THE SECOND TOLL', 'The Saint casts off its mantle.', '#e3b889', 2.5);
+    } else {
+      e.state = 'dead';
+      this.stats.kills++;
+      p.focus += 8;
+      if (e.def.id === 'boss') this.stats.bosses++;
+      this.announce(
+        style,
+        e.def.id === 'boss'
+          ? 'At last, the bell remembers its voice.'
+          : 'An oath kept. A soul released.',
+        '#ebd3a2',
+        1.7,
+      );
+      if (this.room.modifier === 'Blood pact')
+        for (const other of this.alive) other.readyAt = this.time + 0.1;
+    }
+    this.attackToken = -1;
+  }
+  private phaseBoss(e: Enemy): void {
+    e.phase = 2;
+    e.state = 'recover';
+    e.stateAt = this.time;
+    e.readyAt = this.time + 1.4;
+    e.posture = 0;
+    this.attackToken = -1;
+    this.impact(e.x, e.y, '#d7967d', 45, 'ring', 2);
+    this.announce('THE SECOND TOLL', 'New rhythm. Shorter silences.', '#dfad88', 2.3);
+  }
+
+  private emit(event: RelicEvent, target?: Enemy): void {
+    for (const relic of this.relics) {
+      if (relic.event !== event) continue;
+      switch (relic.effect) {
+        case 'heal':
+          if (relic.id !== 'blood' || this.player.hp < 50)
+            this.player.hp = Math.min(100, this.player.hp + relic.amount);
+          break;
+        case 'focus':
+          if (relic.id !== 'still' || this.time - this.lastMoved > 0.4)
+            this.player.focus += relic.amount;
+          break;
+        case 'ward':
+          this.ward = Math.max(this.ward, relic.amount);
+          break;
+        case 'window':
+          this.bonusWindow = relic.amount;
+          break;
+        case 'hunger':
+          this.hunger += relic.amount;
+          break;
+        case 'burn':
+          if (target) target.burns = this.time + 3;
+          break;
+        case 'mirror':
+          if (target && this.stats.parries % 3 === 0 && target.def.id !== 'boss') {
+            this.player.x = target.x + Math.cos(target.facing) * -55;
+            this.player.y = target.y + Math.sin(target.facing) * -55;
+            this.move(this.player, 0, 0);
+            this.player.counterUntil = this.time + 1;
+          }
+          break;
+        case 'chain':
+          for (const e of this.alive)
+            if (e !== target) {
+              e.hp -= relic.amount;
+              this.pressure(e, relic.amount);
+              if (e.hp <= 0) this.breakEnemy(e);
+            }
+          break;
+        case 'echo':
+          if (this.stats.perfects % 3 !== 0) break;
+          this.relicPulse(relic.amount);
+          break;
+        case 'pressure':
+          this.relicPulse(relic.amount);
+          break;
+      }
+    }
+    if (this.room.modifier === 'Unstable' && event === 'perfect') this.relicPulse(9);
+  }
+  private relicPulse(amount: number): void {
+    this.effect(this.player.x, this.player.y, 'ring', '#b9d6cf', 0.5, 2);
+    for (const e of this.alive) if (distance(e, this.player) < 260) this.pressure(e, amount);
+  }
+
+  private interact(): void {
+    const p = this.player;
+    const broken = this.alive.find(
+      (e) => e.state === 'broken' && distance(e, p) < BALANCE.finisherRange,
+    );
+    if (broken) {
+      this.finish(broken);
+      return;
+    }
+    if (this.combat) return;
+    if (!this.room.claimed && distance(p, { x: 560, y: 365 }) < 110) {
+      if (this.room.kind === 'exit') {
+        const hp = p.hp,
+          focus = p.focus;
+        this.floor = makeFloor(this.seed, this.floor.depth + 1);
+        this.enterRoom(0);
+        p.hp = Math.min(100, hp + 18);
+        p.focus = focus;
+        this.save.bestDepth = Math.max(this.save.bestDepth, this.floor.depth);
+        persist(this.save);
+        this.announce(
+          BIOMES[this.floor.biome].name.toUpperCase(),
+          `DEPTH ${String(this.floor.depth).padStart(2, '0')} · ${this.floor.hybrid === null ? BIOMES[this.floor.biome].label : `MUTATION: ${BIOMES[this.floor.hybrid].short.toUpperCase()}`}`,
+          '#dfc99f',
+          3,
+        );
+        this.events.push({ type: 'floor' });
+        return;
+      }
+      if (this.room.kind === 'healing') {
+        p.hp = Math.min(100, p.hp + 40);
+        this.room.claimed = true;
+        this.impact(560, 365, '#abcfc0', 24, 'ring', 1.5);
+        this.audio.play('clear');
+        this.announce('A MOMENT OF MERCY', '40 vitality restored.', '#b8d8c8', 2);
+        return;
+      }
+      if (['treasure', 'shrine', 'secret'].includes(this.room.kind)) {
+        this.room.claimed = true;
+        this.openReward();
+        return;
+      }
+    }
+    for (const id of this.room.links)
+      if (distance(p, doorPosition(this.room, this.floor.rooms[id])) < 115) {
+        const old = this.room;
+        this.enterRoom(id, old);
+        return;
+      }
+  }
+
+  private clearRoom(): void {
+    this.room.cleared = true;
+    this.stats.rooms++;
+    const grade =
+      this.roomDamage === 0 && this.roomPerfects > 1
+        ? 'S'
+        : this.roomDamage < 15
+          ? 'A'
+          : this.roomDamage < 35
+            ? 'B'
+            : 'C';
+    this.announce(
+      'THE CHAMBER FALLS SILENT',
+      `RANK ${grade} · ${this.roomPerfects} PERFECT DEFLECTIONS`,
+      '#dbc89e',
+      2.3,
+    );
+    this.audio.play('clear');
+    this.audio.ambience(false, false);
+    this.emit('clear');
+    this.clearAt = this.time + 1.8;
+  }
+  openReward(): void {
+    const pool = RELICS.filter((r) => !this.relics.some((owned) => owned.id === r.id));
+    this.rewards = [];
+    for (let i = 0; i < 3 && pool.length; i++) {
+      const selected = this.rewardRng.weighted(pool, (r) =>
+        r.rarity === 'Faded' ? 3 : r.rarity === 'Rare' ? 2 : 1,
+      );
+      this.rewards.push(selected);
+      pool.splice(pool.indexOf(selected), 1);
+    }
+    if (!this.rewards.length) {
+      this.player.hp = Math.min(100, this.player.hp + 20);
+      return;
+    }
+    this.mode = 'reward';
+    this.events.push({ type: 'reward' });
+    this.audio.ambience(false, true);
+    this.buffer.clear();
+  }
+  chooseRelic(id: string): void {
+    const relic = this.rewards.find((r) => r.id === id);
+    if (!relic || this.mode !== 'reward') return;
+    this.relics.push(relic);
+    if (!this.save.relics.includes(id)) this.save.relics.push(id);
+    persist(this.save);
+    this.mode = 'playing';
+    this.rewards = [];
+    this.announce(relic.name.toUpperCase(), relic.description, '#d5c69d', 3);
+    this.audio.play('clear');
+    this.audio.ambience(this.combat, false);
+  }
+
+  private die(): void {
+    this.mode = 'dead';
+    this.player.state = 'dead';
+    this.audio.play('death');
+    this.audio.ambience(false, true);
+    this.settleRun();
+    this.events.push({ type: 'death' });
+  }
+  settleRun(): void {
+    if (this.settled || this.training) return;
+    this.settled = true;
+    this.save.runs++;
+    this.save.kills += this.stats.kills;
+    this.save.embers += this.stats.kills + this.stats.rooms * 2 + this.stats.bosses * 10;
+    this.save.bestDepth = Math.max(this.save.bestDepth, this.floor.depth);
+    if (!this.save.weapons.includes(this.weapon.id)) this.save.weapons.push(this.weapon.id);
+    persist(this.save);
+  }
+
+  private move(body: { x: number; y: number }, dx: number, dy: number): void {
+    body.x = Math.min(1048, Math.max(72, body.x + dx));
+    for (const o of this.obstacles) {
+      const d = distance(body, o),
+        min = o.radius + 16;
+      if (d < min) {
+        const angle = Math.atan2(body.y - o.y, body.x - o.x);
+        body.x = o.x + Math.cos(angle) * min;
+      }
+    }
+    body.y = Math.min(680, Math.max(90, body.y + dy));
+    for (const o of this.obstacles) {
+      const d = distance(body, o),
+        min = o.radius + 16;
+      if (d < min) {
+        const angle = Math.atan2(body.y - o.y, body.x - o.x);
+        body.y = o.y + Math.sin(angle) * min;
+      }
+    }
+  }
+  private separateEnemies(): void {
+    const living = this.alive;
+    if (!['dodge', 'finisher'].includes(this.player.state))
+      for (const e of living) {
+        const d = distance(e, this.player);
+        if (d < 46 && e.state !== 'broken') {
+          const angle = Math.atan2(e.y - this.player.y, e.x - this.player.x);
+          this.move(e, Math.cos(angle) * (46 - d) * 0.65, Math.sin(angle) * (46 - d) * 0.65);
+          this.move(
+            this.player,
+            -Math.cos(angle) * (46 - d) * 0.35,
+            -Math.sin(angle) * (46 - d) * 0.35,
+          );
+        }
+      }
+    for (let i = 0; i < living.length; i++)
+      for (let j = i + 1; j < living.length; j++) {
+        const a = living[i],
+          b = living[j],
+          d = distance(a, b);
+        if (d < 48) {
+          const angle = Math.atan2(a.y - b.y, a.x - b.x);
+          this.move(a, Math.cos(angle) * 1.8, Math.sin(angle) * 1.8);
+          this.move(b, -Math.cos(angle) * 1.8, -Math.sin(angle) * 1.8);
+        }
+      }
+  }
+  inZone(body: { x: number; y: number }, kind: string): boolean {
+    if (kind === 'water') return body.y > 480 && body.x > 380 && body.x < 740;
+    return Math.hypot(body.x - 560, body.y - 250) < (kind === 'fungal' ? 100 : 65);
+  }
+  private updateHazards(): void {
+    if (
+      this.time < this.player.immunity ||
+      this.player.state === 'dodge' ||
+      this.player.state === 'finisher'
+    )
+      return;
+    const active = this.time % 5 > 3.4;
+    const biomes = [this.floor.biome, this.floor.hybrid];
+    if (active && biomes.includes(4) && this.inZone(this.player, 'lava'))
+      this.hurt(10, 'THE FURNACE EXHALES');
+    if (active && biomes.includes(2) && this.inZone(this.player, 'fungal'))
+      this.hurt(6, 'SPORES IN YOUR LUNGS');
+    if (
+      biomes.includes(3) &&
+      this.inZone(this.player, 'ice') &&
+      this.movement.x &&
+      !this.movement.y
+    )
+      this.move(this.player, this.movement.x * 1.8, 0);
+    if (
+      this.room.kind === 'hazard' &&
+      active &&
+      Math.abs(this.player.x - 560) < 110 &&
+      Math.abs(this.player.y - 380) < 180
+    )
+      this.hurt(9, 'THE PASSAGE AWAKENS');
+  }
+
+  announce(text: string, sub = '', color = '#d8c49a', duration = 2): void {
+    this.toast = { text, sub, color, until: this.time + duration };
+  }
+  effect(
+    x: number,
+    y: number,
+    kind: Effect['kind'],
+    color: string,
+    life: number,
+    scale: number,
+    angle = 0,
+  ): void {
+    this.effects.push({ x, y, kind, color, life, maxLife: life, scale, angle });
+  }
+  impact(
+    x: number,
+    y: number,
+    color: string,
+    count: number,
+    kind: Effect['kind'],
+    scale: number,
+  ): void {
+    this.effect(x, y, kind, color, 0.45, scale);
+    for (let i = 0; i < count; i++) {
+      const angle = this.rng.next() * Math.PI * 2,
+        speed = this.rng.int(70, 360) * scale;
+      const life = this.rng.int(15, 60) / 100;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.65,
+        life,
+        maxLife: life,
+        size: this.rng.int(1, 3),
+        color,
+      });
+    }
+    this.shake = Math.max(this.shake, kind === 'perfect' ? 5 * scale : 2);
+    if (this.save.settings.flashes && kind === 'perfect') this.flash = 0.12 * scale;
+  }
+}
